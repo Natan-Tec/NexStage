@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NexStage</title>
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13M9 9l11-2M6 21c2.2 0 3-1.1 3-2.5S8.2 16 6 16s-3 1.1-3 2.5S3.8 21 6 21Zm11-2c2.2 0 3-1.1 3-2.5S19.2 14 17 14s-3 1.1-3 2.5 0.8 2.5 3 2.5Z"/></symbol>
+    <symbol id="i-bible" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13Zm0 0A2.5 2.5 0 0 0 6.5 22H20v-5M12 6v7m-3.5-3.5h7"/></symbol>
+    <symbol id="i-media" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m8 14 2.6-3 2.4 2 2.6-3L20 15M8 8h.01"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
+    <symbol id="i-display" viewBox="0 0 24 24"><rect x="2.5" y="3.5" width="19" height="14" rx="2"/><path d="M8 21h8m-4-3.5V21"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7m4 4v6m4-6v6"/></symbol>
+    <symbol id="i-live" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5.6 18.4a9 9 0 0 1 0-12.8m12.8 0a9 9 0 0 1 0 12.8M8.5 15.5a5 5 0 0 1 0-7m7 0a5 5 0 0 1 0 7"/></symbol>
+    <symbol id="i-logo" viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5m-18 4 9 5 9-5"/></symbol>
+    <symbol id="i-font" viewBox="0 0 24 24"><path d="M4 20h5M6.5 20 12 4l5.5 16M8.5 14h7M15 20h5"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="m4 20 4.5-1 10-10-3.5-3.5-10 10L4 20Z"/><path d="m13.5 6.5 3.5 3.5M4 20h16"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 8.5A7 7 0 0 1 18.7 7M5.3 17A7 7 0 0 0 17.9 15.5"/></symbol>
+  </svg>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-mark" src="/favicon.ico" alt="">
+        <div><strong>NexStage</strong><small>Apresentação para igrejas</small></div>
+      </div>
+      <div class="on-air" id="onAir"><span></span><b>FORA DO AR</b></div>
+      <div class="top-actions">
+        <button class="button ghost" id="copyObs"><svg><use href="#i-copy"/></svg> OBS</button>
+        <button class="button primary" id="openOutput"><svg><use href="#i-display"/></svg> Abrir telão</button>
+      </div>
+    </header>
+
+    <nav class="rail" aria-label="Fontes">
+      <button class="rail-button active" data-tab="songs"><svg><use href="#i-music"/></svg><span>Músicas</span></button>
+      <button class="rail-button" data-tab="bible"><svg><use href="#i-bible"/></svg><span>Bíblia</span></button>
+      <button class="rail-button" data-tab="media"><svg><use href="#i-media"/></svg><span>Mídia</span></button>
+      <button class="rail-button" data-tab="clock"><svg><use href="#i-clock"/></svg><span>Relógio</span></button>
+      <span class="rail-spacer"></span>
+      <button class="rail-button" data-tab="settings"><svg><use href="#i-settings"/></svg><span>Ajustes</span></button>
+    </nav>
+
+    <aside class="source-panel">
+      <section class="tab-panel active" data-panel="songs">
+        <div class="panel-heading"><div><span class="eyebrow">BIBLIOTECA</span><h1>Músicas</h1></div><button class="icon-button" id="importTxt" title="Importar TXT"><svg><use href="#i-upload"/></svg></button></div>
+        <div class="searchbox"><svg><use href="#i-search"/></svg><input id="songFilter" placeholder="Buscar música"></div>
+        <button class="online-search" id="openOnline"><span class="pulse-dot"></span><span><b>Buscar letra online</b><small>LRCLIB • requer internet</small></span><svg><use href="#i-chevron"/></svg></button>
+        <button class="online-search lja-search" id="openLouvorJA"><span class="source-badge">LJA</span><span><b>Importar do Louvor JA</b><small id="ljaQuickStatus">Verificando catálogo local…</small></span><svg><use href="#i-chevron"/></svg></button>
+        <details class="source-options"><summary>Opções das músicas</summary><label class="check-row"><input type="checkbox" id="songShowLabels" checked><span>Mostrar rótulos (Verso, Refrão…)</span></label><label class="check-row"><input type="checkbox" id="songShowCredits"><span>Mostrar créditos</span></label><label class="field"><span>Formato dos créditos</span><select id="songCreditsFormat"><option value="artist">Artista</option><option value="titleArtist">Título — Artista</option><option value="album">Álbum</option></select></label></details>
+        <div class="section-label"><span>Minhas músicas</span><b id="songCount">0</b></div>
+        <div class="library-list" id="songList"></div>
+      </section>
+
+      <section class="tab-panel" data-panel="bible">
+        <div class="panel-heading"><div><span class="eyebrow">XML + LOUVOR JA</span><h1>Bíblia</h1></div><button class="icon-button" id="importBible" title="Importar XML"><svg><use href="#i-upload"/></svg></button></div>
+        <button class="online-search lja-search bible-lja-status" id="refreshLjaBibles"><span class="source-badge">LJA</span><span><b>Bíblias do Louvor JA</b><small id="ljaBibleQuickStatus">Verificando versões locais…</small></span><svg><use href="#i-refresh"/></svg></button>
+        <label class="field"><span>Tradução</span><select id="bibleSelect"><option value="">Carregando traduções…</option></select></label>
+        <label class="field"><span>Livro</span><select id="bookSelect" disabled><option>—</option></select></label>
+        <label class="field"><span>Capítulo</span><select id="chapterSelect" disabled><option>—</option></select></label>
+        <label class="check-row"><input type="checkbox" id="bibleShowVersion" checked><span>Mostrar nome da versão</span></label>
+        <label class="field"><span>Formato da referência</span><select id="bibleReferenceFormat"><option value="full">João 3:16</option><option value="compact">Jo 3.16</option></select></label>
+        <button class="button soft full edit-visual" id="editBibleVisual"><svg><use href="#i-edit"/></svg> Editar visual da Bíblia</button>
+        <div class="bible-hint"><svg><use href="#i-bible"/></svg><div><b>Duas fontes offline</b><p>Use seu XML Zefania ou leia as versões do Louvor JA sem copiar o banco.</p></div></div>
+      </section>
+
+      <section class="tab-panel" data-panel="media">
+        <div class="panel-heading"><div><span class="eyebrow">BACKS E LOGOS</span><h1>Mídia</h1></div><button class="icon-button" id="importMedia" title="Importar mídia"><svg><use href="#i-upload"/></svg></button></div>
+        <div class="upload-drop" id="mediaDrop"><svg><use href="#i-upload"/></svg><b>Solte vídeos ou imagens</b><small>MP4 H.264 recomendado</small><div class="upload-progress"><i id="uploadBar"></i></div></div>
+        <div class="section-label"><span>Arquivos locais</span><b id="mediaCount">0</b></div>
+        <div class="media-grid" id="mediaGrid"></div>
+      </section>
+
+      <section class="tab-panel" data-panel="clock">
+        <div class="panel-heading"><div><span class="eyebrow">UTILITÁRIO</span><h1>Relógio</h1></div></div>
+        <div class="clock-card"><div id="clockPreview">20:45</div><span id="clockDate">Sábado, 22 de agosto</span></div>
+        <label class="field"><span>Texto auxiliar</span><input id="clockLabel" placeholder="O culto começa em breve"></label>
+        <label class="check-row"><input type="checkbox" id="clock24" checked><span>Formato de 24 horas</span></label>
+        <label class="check-row"><input type="checkbox" id="clockSeconds"><span>Mostrar segundos</span></label>
+        <label class="check-row"><input type="checkbox" id="clockShowDate" checked><span>Mostrar data</span></label>
+        <label class="field"><span>Formato da data</span><select id="clockDateFormat"><option value="long">Sábado, 22 de agosto</option><option value="short">22/08/2026</option><option value="weekday">Sábado</option></select></label>
+        <button class="button soft full edit-visual" id="editClockVisual"><svg><use href="#i-edit"/></svg> Editar visual do relógio</button>
+        <button class="button primary full" id="presentClock"><svg><use href="#i-clock"/></svg> Colocar relógio no ar</button>
+      </section>
+
+      <section class="tab-panel" data-panel="settings">
+        <div class="panel-heading"><div><span class="eyebrow">SISTEMA</span><h1>Ajustes</h1></div></div>
+        <div class="settings-section-label">Louvor JA</div>
+        <div class="settings-card integration-card"><div class="settings-status-line"><span class="status-dot" id="ljaStatusDot"></span><div><b id="ljaStatusTitle">Verificando…</b><small id="ljaStatusDetail">Catálogo local em somente leitura</small></div></div><label class="mini-field"><span>Caminho opcional do database.db</span><input id="ljaPath" placeholder="Detecção automática"></label><div class="button-row"><button class="button soft" id="saveLjaPath">Salvar caminho</button><button class="button ghost" id="refreshLja"><svg><use href="#i-refresh"/></svg></button></div></div>
+
+        <div class="settings-section-label">Fontes</div>
+        <div class="settings-card"><b>Fontes do NexStage</b><p>Importe TTF, OTF, WOFF ou WOFF2. A instalação é local e não altera o Windows.</p><div class="settings-inline"><span id="fontCount">0 fontes importadas</span><button class="button soft" id="importFont"><svg><use href="#i-font"/></svg> Importar</button></div></div>
+
+        <div class="settings-section-label">Monitor do telão</div>
+        <div class="settings-card"><b>Abrir no monitor escolhido</b><p id="screenHelp">Detecte as telas e permita o gerenciamento de janelas no navegador.</p><label class="mini-field"><span>Monitor padrão</span><select id="screenSelect"><option value="">Automático / atual</option></select></label><label class="check-row"><input type="checkbox" id="screenFill" checked><span>Usar toda a área disponível</span></label><button class="button soft full" id="detectScreens"><svg><use href="#i-display"/></svg> Detectar monitores</button></div>
+
+        <div class="settings-section-label">Interface</div>
+        <div class="settings-card settings-form"><label class="mini-field"><span>Cor de destaque</span><input type="color" id="uiAccent" value="#1687ff"></label><label class="mini-field"><span>Escala da interface <output id="uiScaleOut">100%</output></span><input type="range" id="uiScale" min="90" max="115" value="100"></label><label class="mini-field"><span>Densidade</span><select id="uiDensity"><option value="compact">Compacta</option><option value="comfortable">Confortável</option><option value="large">Grande</option></select></label><label class="check-row"><input type="checkbox" id="confirmDelete" checked><span>Confirmar antes de excluir</span></label><label class="check-row"><input type="checkbox" id="confirmClear"><span>Confirmar antes de limpar a saída</span></label></div>
+
+        <div class="settings-section-label">Vídeo e preview</div>
+        <div class="settings-card settings-form"><label class="mini-field"><span>Crossfade <output id="crossfadeOut">450 ms</output></span><input type="range" id="crossfadeMs" min="0" max="2000" step="50" value="450"></label><label class="mini-field"><span>Mini-preview de vídeo</span><select id="previewMode"><option value="frame">Frame congelado</option><option value="off">Desligada</option></select></label><button class="text-button" id="clearFrameCache">Limpar cache de frames</button></div>
+
+        <div class="settings-section-label">OBS</div>
+        <div class="settings-card"><b>Saída do OBS</b><p>Adicione uma fonte “Navegador” no OBS e use:</p><code id="obsUrl">http://127.0.0.1:4310/obs</code><button class="button soft full" id="copyObsSettings"><svg><use href="#i-copy"/></svg> Copiar endereço</button></div>
+        <div class="settings-card"><b>CSS no OBS</b><p>Os seletores principais são <code>#lyrics</code>, <code>#reference</code> e <code>#church-overlay</code>.</p><button class="text-button" id="copyCss">Copiar exemplo de CSS</button></div>
+        <div class="settings-card performance"><span class="status-icon">✓</span><div><b>Modo de vídeo otimizado</b><p>Range HTTP, pré-carregamento duplo e controle por long polling estão ativos.</p></div></div>
+
+        <div class="settings-section-label">Configurações</div>
+        <div class="settings-card"><b>Exportar ou restaurar ajustes</b><p>Salva estilos, cores, relógio, opções da Bíblia, músicas, vídeo e interface. Mídias, letras, fontes, caminho do Louvor JA e monitor não são incluídos.</p><div class="button-row config-actions"><button class="button soft" id="exportSettings"><svg><use href="#i-copy"/></svg> Exportar</button><button class="button ghost" id="importSettings"><svg><use href="#i-upload"/></svg> Importar</button></div></div>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <div class="workspace-head">
+        <div><span class="eyebrow">LETRA SELECIONADA</span><h2 id="currentTitle">Selecione uma música</h2></div>
+        <div class="live-badge"><span></span> SAÍDA PRINCIPAL</div>
+      </div>
+      <div class="preview-suite">
+        <section class="lyrics-preview-panel" aria-label="Prévia dedicada da letra">
+          <div class="preview-frame" id="previewFrame">
+            <div class="preview-bg" id="previewBg"></div>
+            <div class="preview-vignette"></div>
+            <img class="preview-overlay" id="previewOverlay" alt="Marca d'água da igreja">
+            <div class="preview-copy" id="previewCopy"><small id="previewLabel"></small><div id="previewText">Escolha uma música ou um verso</div><em id="previewReference"></em></div>
+            <div class="preview-empty-video" id="videoHint"><svg><use href="#i-play"/></svg><span>quadro congelado do vídeo</span></div>
+          </div>
+        </section>
+
+        <aside class="monitor-preview" aria-label="Prévia do telão do público">
+          <div class="monitor-preview-head">
+            <div><span class="eyebrow">TELÃO DO PÚBLICO</span><b>Visual completo</b></div>
+            <span class="monitor-status" id="monitorStatus">PRÉVIA</span>
+          </div>
+          <div class="stage-preview-frame" id="stagePreviewFrame">
+            <div class="preview-bg" id="stagePreviewBg"></div>
+            <div class="preview-vignette"></div>
+            <img class="preview-overlay" id="stagePreviewOverlay" alt="Marca d'água da igreja">
+            <div class="preview-copy stage-preview-copy" id="stagePreviewCopy"><small id="stagePreviewLabel"></small><div id="stagePreviewText">Nada selecionado</div><em id="stagePreviewReference"></em></div>
+            <div class="preview-empty-video" id="stageVideoHint"><svg><use href="#i-play"/></svg><span>frame</span></div>
+            <div class="stage-preview-blackout" id="stagePreviewBlackout"></div>
+          </div>
+          <div class="monitor-view-switch" aria-label="Conteúdo da mini-preview">
+            <button class="active" data-monitor-view="output">Saída</button>
+            <button data-monitor-view="draft">Preparado</button>
+          </div>
+          <p id="monitorHelp">Mostra a saída atual, inclusive quando ela está fora do ar.</p>
+        </aside>
+      </div>
+
+      <div class="slides-head"><div><span class="eyebrow">SLIDES</span><b id="slidesTitle">Nenhum item selecionado</b></div><span><i>Duplo clique para editar</i> · <b id="slideCounter">0 slides</b></span></div>
+      <div class="slides-grid" id="slidesGrid">
+        <div class="empty-state"><svg><use href="#i-music"/></svg><b>Sua sequência aparecerá aqui</b><span>Importe um TXT ou selecione uma passagem bíblica.</span></div>
+      </div>
+
+      <div class="transport">
+        <button class="transport-button danger" id="blackout"><span class="black-square"></span><b>PRETO</b><small>B</small></button>
+        <button class="transport-button" id="clearOutput"><span class="clear-symbol">×</span><b>LIMPAR</b><small>Esc</small></button>
+        <span class="transport-spacer"></span>
+        <button class="transport-button square" id="previousSlide" aria-label="Anterior">‹</button>
+        <button class="transport-button square" id="nextSlide" aria-label="Próximo">›</button>
+        <button class="go-live" id="goLive"><svg><use href="#i-live"/></svg><span><b>COLOCAR NO AR</b><small>Enter</small></span></button>
+      </div>
+    </main>
+
+    <aside class="inspector">
+      <div class="inspector-title"><svg><use href="#i-settings"/></svg><div><b>Visual da saída</b><small id="inspectorContext">Música</small></div></div>
+      <div class="inspector-scroll">
+        <div class="control-group"><label>Fundo</label><button class="media-picker" id="backgroundPicker"><span id="backgroundSwatch"></span><div><b id="backgroundName">Gradiente padrão</b><small>Clique para escolher em Mídia</small></div><svg><use href="#i-chevron"/></svg></button><button class="text-button subtle" id="clearBackground">Remover fundo selecionado</button></div>
+        <div class="control-group"><label>Logo / sobreposição</label><button class="media-picker" id="overlayPicker"><span class="logo-swatch"><svg><use href="#i-logo"/></svg></span><div><b id="overlayName">Nenhuma logo</b><small>PNG transparente recomendado</small></div><svg><use href="#i-chevron"/></svg></button><button class="text-button subtle" id="clearOverlay">Remover logo</button></div>
+        <div class="control-group"><label>Elemento</label><select id="styleTarget"><option value="song.text">Letra da música</option><option value="song.label">Rótulo da seção</option></select></div>
+        <div class="control-group two font-size-control"><label><span>Tamanho</span><span class="pixel-input"><input type="number" id="fontSizeNumber" min="1" step="1" value="64" inputmode="numeric" aria-label="Tamanho personalizado em pixels"><i>px</i></span></label><input type="range" id="fontSize" min="12" max="160" value="64"><small>Use a caixa para qualquer valor acima da barra.</small></div>
+        <div class="control-group"><label>Fonte</label><select id="fontFamily"><option value="Arial, Helvetica, sans-serif">Arial</option><option value="'Trebuchet MS', sans-serif">Trebuchet</option><option value="Georgia, serif">Georgia</option><option value="Impact, sans-serif">Impact</option><option value="system-ui, sans-serif">Sistema</option></select></div>
+        <div class="control-group"><label>Peso</label><select id="fontWeight"><option value="300">Leve</option><option value="400">Normal</option><option value="600">Seminegrito</option><option value="700">Negrito</option><option value="800">Extra negrito</option><option value="900">Pesado</option></select></div>
+        <div class="control-group"><label>Alinhamento</label><div class="segmented"><button data-align="left">≡</button><button class="active" data-align="center">≡</button><button data-align="right">≡</button></div></div>
+        <div class="control-group colors"><label>Cor do texto</label><div><input type="color" id="textColor" value="#ffffff"><span id="textColorValue">#FFFFFF</span></div></div>
+        <details class="advanced-controls" open><summary>Posição e espaçamento</summary><div class="control-group two"><label>Posição X <output id="positionXOut">50%</output></label><input type="range" id="positionX" min="0" max="100" value="50"></div><div class="control-group two"><label>Posição Y <output id="positionYOut">50%</output></label><input type="range" id="positionY" min="0" max="100" value="50"></div><div class="control-group two"><label>Largura <output id="maxWidthOut">86%</output></label><input type="range" id="maxWidth" min="20" max="100" value="86"></div><div class="control-group two"><label>Altura da linha <output id="lineHeightOut">1.13</output></label><input type="range" id="lineHeight" min="0.8" max="2" step="0.01" value="1.13"></div><div class="control-group two"><label>Espaço entre letras <output id="letterSpacingOut">0 px</output></label><input type="range" id="letterSpacing" min="-2" max="12" step="0.25" value="0"></div></details>
+        <label class="check-row"><input type="checkbox" id="textShadow" checked><span>Sombra para legibilidade</span></label>
+        <label class="check-row"><input type="checkbox" id="uppercase"><span>Transformar em maiúsculas</span></label>
+        <label class="check-row"><input type="checkbox" id="italic"><span>Itálico</span></label>
+        <label class="check-row"><input type="checkbox" id="textOutline"><span>Contorno reforçado</span></label>
+        <label class="check-row"><input type="checkbox" id="textBackground"><span>Fundo semitransparente</span></label>
+        <button class="text-button reset-style" id="restoreStyle">Restaurar este elemento</button>
+        <div class="tip"><span>⚡</span><p>Para vídeo fluido, prefira <b>MP4 H.264, 1080p, 30 fps</b>. O controlador captura só um frame e não mantém outro vídeo tocando.</p></div>
+      </div>
+    </aside>
+  </div>
+
+  <input type="file" id="txtInput" accept=".txt,text/plain" hidden multiple>
+  <input type="file" id="bibleInput" accept=".xml,text/xml,application/xml" hidden>
+  <input type="file" id="mediaInput" accept="video/mp4,video/webm,video/quicktime,image/png,image/jpeg,image/webp,image/gif" hidden multiple>
+  <input type="file" id="fontInput" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" hidden>
+  <input type="file" id="settingsInput" accept=".nxsconfig,.json,application/json" hidden>
+
+  <dialog id="onlineDialog">
+    <form method="dialog" class="dialog-card" onsubmit="return false">
+      <div class="dialog-head"><div><span class="eyebrow">LETRAS ONLINE</span><h2>Buscar uma música</h2></div><button class="dialog-close" type="button" aria-label="Fechar">×</button></div>
+      <p class="dialog-note">Pesquise pelo título e artista. Confira a letra antes de usar na apresentação.</p>
+      <div class="dialog-search"><input id="onlineQuery" placeholder="Ex.: Me Atrai — Gabriela Rocha"><button class="button primary" type="button" id="searchOnline"><svg><use href="#i-search"/></svg> Buscar</button></div>
+      <div class="online-results" id="onlineResults"><div class="dialog-empty">Os resultados aparecerão aqui.</div></div>
+    </form>
+  </dialog>
+
+  <dialog id="ljaDialog">
+    <form method="dialog" class="dialog-card" onsubmit="return false">
+      <div class="dialog-head"><div><span class="eyebrow">CATÁLOGO LOCAL</span><h2>Importar do Louvor JA</h2></div><button class="dialog-close lja-close" type="button" aria-label="Fechar">×</button></div>
+      <p class="dialog-note" id="ljaDialogStatus">O banco será usado somente para leitura.</p>
+      <div class="dialog-search"><input id="ljaQuery" placeholder="Digite o título ou álbum"><button class="button primary" type="button" id="searchLja"><svg><use href="#i-search"/></svg> Buscar</button></div>
+      <div class="online-results" id="ljaResults"><div class="dialog-empty">Pesquise uma música do catálogo instalado.</div></div>
+    </form>
+  </dialog>
+
+  <dialog id="slideDialog">
+    <form method="dialog" class="dialog-card slide-editor" onsubmit="return false">
+      <div class="dialog-head"><div><span class="eyebrow">EDITOR DE SLIDE</span><h2 id="slideDialogTitle">Editar letra</h2></div><button class="dialog-close slide-close" type="button" aria-label="Fechar">×</button></div>
+      <label class="field"><span>Rótulo</span><input id="slideLabel" placeholder="Verso, Refrão, Ponte…"></label>
+      <label class="field"><span>Texto</span><textarea id="slideText" rows="9"></textarea></label>
+      <details class="song-metadata"><summary>Dados da música</summary><div class="metadata-grid"><label class="field"><span>Título</span><input id="songEditTitle"></label><label class="field"><span>Artista / grupo</span><input id="songEditArtist"></label><label class="field"><span>Álbum</span><input id="songEditAlbum"></label></div></details>
+      <div class="slide-editor-actions"><button class="button ghost" id="splitSlide" type="button">Dividir no cursor</button><button class="button ghost" id="duplicateSlide" type="button">Duplicar</button><button class="button ghost danger-text" id="deleteSlide" type="button">Excluir</button><span></span><button class="button primary" id="saveSlide" type="button">Salvar alterações</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast"><span>✓</span><div><b id="toastTitle">Pronto</b><small id="toastMessage"></small></div></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

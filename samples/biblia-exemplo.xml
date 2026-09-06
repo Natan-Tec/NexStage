@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<XMLBIBLE biblename="Tradução de Teste">
+  <BIBLEBOOK bnumber="1" bname="Livro de Exemplo">
+    <CHAPTER cnumber="1">
+      <VERS vnumber="1">Este é um texto fictício usado apenas para testar a importação.</VERS>
+      <VERS vnumber="2">Cada versículo se transforma em um slide independente.</VERS>
+    </CHAPTER>
+  </BIBLEBOOK>
+</XMLBIBLE>

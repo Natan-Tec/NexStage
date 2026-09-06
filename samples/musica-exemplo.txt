@@ -1,0 +1,13 @@
+Title: Música de Exemplo
+
+[Verso 1]
+Primeira linha da canção
+Segunda linha da canção
+
+[Refrão]
+Este é o refrão
+Pronto para o telão
+
+[Ponte]
+Uma ponte também
+Vira um novo slide

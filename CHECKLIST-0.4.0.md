@@ -1,0 +1,21 @@
+# Checklist fechada — NexStage 0.4.0
+
+- [x] Preservar importação offline de músicas do Louvor JA.
+- [x] Detectar as versões bíblicas existentes no `database.db`.
+- [x] Exibir Bíblias XML e Louvor JA separadas por origem.
+- [x] Consultar apenas o capítulo bíblico selecionado.
+- [x] Manter o banco do Louvor JA exclusivamente em modo somente leitura.
+- [x] Ignorar com segurança registros bíblicos sem texto.
+- [x] Não incluir ou redistribuir o banco do Louvor JA.
+- [x] Manter a barra de tamanho para ajustes rápidos.
+- [x] Permitir tamanho personalizado sem máximo artificial em uma caixa numérica.
+- [x] Preservar o tamanho digitado ao alterar os demais controles visuais.
+- [x] Aplicar o tamanho livre a música, Bíblia e relógio.
+- [x] Exportar configurações e estilos para `.nxsconfig`.
+- [x] Importar e validar configurações exportadas.
+- [x] Preservar o caminho local do Louvor JA e o monitor preferido na importação.
+- [x] Manter compatibilidade com configurações das versões 0.2.0 e 0.3.0.
+- [x] Atualizar manual, notas da versão e número do aplicativo.
+- [x] Validar controlador, telão, OBS, favicon e endpoints HTTP.
+- [x] Confirmar com hash que o banco real fornecido não foi alterado.
+- [x] Executar todos os testes automatizados com sucesso.

@@ -1,0 +1,1540 @@
+#!/usr/bin/env python3
+"""NexStage local presentation server.
+
+The server intentionally uses only Python's standard library.  The browser does
+the rendering and video decoding, while this process persists the library and
+keeps every output synchronized through a tiny polling API.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import html
+import json
+import math
+import mimetypes
+import os
+import re
+import shutil
+import socket
+import sqlite3
+import sys
+import threading
+import time
+import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+import webbrowser
+import xml.etree.ElementTree as ET
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+
+APP_NAME = "NexStage"
+APP_VERSION = "0.4.1"
+ROOT = Path(__file__).resolve().parent
+WEB_DIR = ROOT / "web"
+DATA_DIR = ROOT / "data"
+MEDIA_DIR = ROOT / "media"
+BIBLE_DIR = DATA_DIR / "bibles"
+FONT_DIR = DATA_DIR / "fonts"
+LIBRARY_FILE = DATA_DIR / "library.json"
+SETTINGS_FILE = DATA_DIR / "settings.json"
+MAX_JSON_BYTES = 24 * 1024 * 1024
+MAX_MEDIA_BYTES = 8 * 1024 * 1024 * 1024
+MAX_FONT_BYTES = 32 * 1024 * 1024
+SETTINGS_EXPORT_KIND = "NexStageSettings"
+SETTINGS_EXPORT_SCHEMA = 1
+
+DEFAULT_THEME = {
+    "fontFamily": "Arial, Helvetica, sans-serif",
+    "fontSize": 64,
+    "fontWeight": 800,
+    "textColor": "#ffffff",
+    "accentColor": "#1687ff",
+    "align": "center",
+    "vertical": "center",
+    "shadow": True,
+    "uppercase": False,
+    "maxWidth": 86,
+    "overlayOpacity": 1,
+}
+
+
+def block_style(
+    *,
+    size: int,
+    weight: int,
+    color: str,
+    x: float,
+    y: float,
+    width: int,
+    align: str = "center",
+    uppercase: bool = False,
+    line_height: float = 1.13,
+    letter_spacing: float = 0,
+    shadow: bool = True,
+    auto_fit: bool = False,
+) -> dict[str, Any]:
+    return {
+        "fontFamily": "Arial, Helvetica, sans-serif",
+        "fontSize": size,
+        "fontWeight": weight,
+        "textColor": color,
+        "align": align,
+        "x": x,
+        "y": y,
+        "maxWidth": width,
+        "lineHeight": line_height,
+        "letterSpacing": letter_spacing,
+        "shadow": shadow,
+        "uppercase": uppercase,
+        "italic": False,
+        "outline": False,
+        "background": False,
+        "backgroundColor": "#000000",
+        "backgroundOpacity": 0.35,
+        "autoFit": auto_fit,
+        "minFontSize": 26,
+    }
+
+
+DEFAULT_STYLES = {
+    "song": {
+        "label": block_style(
+            size=24, weight=800, color="#66b7ff", x=50, y=24,
+            width=80, uppercase=True, letter_spacing=2.5,
+        ),
+        "text": block_style(
+            size=64, weight=800, color="#ffffff", x=50, y=52,
+            width=86, auto_fit=True,
+        ),
+        "reference": block_style(
+            size=24, weight=600, color="#e7edf5", x=50, y=80, width=80,
+        ),
+    },
+    "bible": {
+        "version": block_style(
+            size=22, weight=800, color="#66b7ff", x=50, y=20,
+            width=80, uppercase=True, letter_spacing=2.2,
+        ),
+        "text": block_style(
+            size=58, weight=750, color="#ffffff", x=50, y=48,
+            width=86, line_height=1.18, auto_fit=True,
+        ),
+        "reference": block_style(
+            size=28, weight=700, color="#e7edf5", x=50, y=79, width=80,
+        ),
+    },
+    "clock": {
+        "label": block_style(
+            size=26, weight=700, color="#66b7ff", x=50, y=27, width=82,
+        ),
+        "time": block_style(
+            size=112, weight=300, color="#ffffff", x=50, y=50,
+            width=88, letter_spacing=2.5,
+        ),
+        "date": block_style(
+            size=28, weight=600, color="#e7edf5", x=50, y=72, width=82,
+        ),
+    },
+}
+
+DEFAULT_STATE: dict[str, Any] = {
+    "revision": 1,
+    "updatedAt": 0,
+    "live": False,
+    "black": False,
+    "mode": "blank",
+    "slide": {"text": "", "label": "", "reference": ""},
+    "background": "",
+    "overlay": "",
+    "theme": DEFAULT_THEME,
+    "styles": DEFAULT_STYLES,
+    "fonts": [],
+    "clock": {
+        "format24": True,
+        "showSeconds": False,
+        "showDate": True,
+        "dateFormat": "long",
+        "label": "",
+    },
+}
+
+DEFAULT_SETTINGS = {
+    "videoCrossfadeMs": 450,
+    "defaultBackground": "",
+    "defaultOverlay": "",
+    "theme": DEFAULT_THEME,
+    "styles": DEFAULT_STYLES,
+    "clock": DEFAULT_STATE["clock"],
+    "bible": {"showVersion": True, "referenceFormat": "full"},
+    "song": {
+        "showSectionLabels": True,
+        "showCredits": False,
+        "creditsFormat": "artist",
+    },
+    "ui": {
+        "accentColor": "#1687ff",
+        "scale": 100,
+        "density": "comfortable",
+        "confirmDelete": True,
+        "confirmClear": False,
+    },
+    "output": {
+        "preferredScreen": "",
+        "openFullscreenSize": True,
+    },
+    "performance": {
+        "previewMode": "frame",
+        "preloadMode": "balanced",
+    },
+    "louvorJaDb": "",
+}
+
+
+def ensure_directories() -> None:
+    for directory in (DATA_DIR, MEDIA_DIR, BIBLE_DIR, FONT_DIR):
+        directory.mkdir(parents=True, exist_ok=True)
+
+
+def deep_merge(base: Any, incoming: Any) -> Any:
+    """Merge nested settings without sharing mutable defaults."""
+    if isinstance(base, dict) and isinstance(incoming, dict):
+        merged = {key: deep_merge(value, {}) for key, value in base.items()}
+        for key, value in incoming.items():
+            if key in merged:
+                merged[key] = deep_merge(merged[key], value)
+            else:
+                merged[key] = json.loads(json.dumps(value))
+        return merged
+    if incoming == {} and not isinstance(base, dict):
+        return json.loads(json.dumps(base))
+    return json.loads(json.dumps(incoming))
+
+
+def atomic_write_json(path: Path, payload: Any) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    temporary.replace(path)
+
+
+def read_json(path: Path, fallback: Any) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return fallback
+
+
+def clean_text(value: str) -> str:
+    value = value.replace("\ufeff", "").replace("\r\n", "\n").replace("\r", "\n")
+    value = "\n".join(line.rstrip() for line in value.split("\n"))
+    return value.strip()
+
+
+def safe_name(filename: str, fallback: str = "arquivo") -> str:
+    name = Path(filename).name
+    stem = unicodedata.normalize("NFKD", Path(name).stem)
+    stem = "".join(c for c in stem if not unicodedata.combining(c))
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip(".-") or fallback
+    suffix = re.sub(r"[^A-Za-z0-9.]", "", Path(name).suffix.lower())[:12]
+    return f"{stem[:90]}{suffix}"
+
+
+def unique_path(directory: Path, filename: str) -> Path:
+    candidate = directory / safe_name(filename)
+    if not candidate.exists():
+        return candidate
+    stem, suffix = candidate.stem, candidate.suffix
+    counter = 2
+    while True:
+        alternate = directory / f"{stem}-{counter}{suffix}"
+        if not alternate.exists():
+            return alternate
+        counter += 1
+
+
+def parse_song_text(filename: str, content: str, title: str = "") -> dict[str, Any]:
+    """Parse common worship TXT conventions into compact slides."""
+    content = clean_text(content)
+    lines = content.split("\n") if content else []
+    detected_title = title.strip()
+
+    if lines and not detected_title:
+        first = lines[0].strip()
+        if first.lower().startswith("title:"):
+            detected_title = first.split(":", 1)[1].strip()
+            lines = lines[1:]
+        elif first.startswith("# "):
+            detected_title = first[2:].strip()
+            lines = lines[1:]
+    if not detected_title:
+        detected_title = Path(filename).stem.replace("_", " ").strip() or "Sem título"
+
+    section_re = re.compile(r"^\s*\[([^\]]+)]\s*$|^\s*(verso|estrofe|refr[aã]o|ponte|coro|intro|final)\s*\d*\s*:?\s*$", re.I)
+    sections: list[tuple[str, list[str]]] = []
+    current_label = ""
+    current_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal current_lines
+        trimmed = [line.strip() for line in current_lines]
+        while trimmed and not trimmed[0]:
+            trimmed.pop(0)
+        while trimmed and not trimmed[-1]:
+            trimmed.pop()
+        if trimmed:
+            sections.append((current_label, trimmed))
+        current_lines = []
+
+    for line in lines:
+        match = section_re.match(line)
+        if match:
+            flush()
+            current_label = (match.group(1) or match.group(2) or "").strip().title()
+            continue
+        if not line.strip():
+            flush()
+            current_label = ""
+            continue
+        current_lines.append(line)
+    flush()
+
+    slides: list[dict[str, str]] = []
+    for label, section_lines in sections:
+        # Keep slides readable even when a TXT file has no blank lines.
+        for index in range(0, len(section_lines), 4):
+            chunk = section_lines[index : index + 4]
+            slides.append({"label": label, "text": "\n".join(chunk)})
+
+    if not slides and content:
+        slides = [{"label": "", "text": content}]
+
+    return {
+        "id": f"song-{uuid.uuid4().hex[:12]}",
+        "title": detected_title,
+        "source": "txt",
+        "filename": Path(filename).name,
+        "slides": slides,
+        "createdAt": int(time.time()),
+    }
+
+
+def strip_xml_namespace(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].upper()
+
+
+def element_text(node: ET.Element) -> str:
+    return re.sub(r"\s+", " ", "".join(node.itertext())).strip()
+
+
+def first_attr(node: ET.Element, names: tuple[str, ...], default: str = "") -> str:
+    lowered = {key.lower(): value for key, value in node.attrib.items()}
+    for name in names:
+        value = lowered.get(name.lower())
+        if value is not None:
+            return str(value)
+    return default
+
+
+def parse_zefania_xml(filename: str, content: str) -> dict[str, Any]:
+    """Read Zefania XML and a conservative generic BOOK/CHAPTER/VERSE subset."""
+    if "<!DOCTYPE" in content.upper() or "<!ENTITY" in content.upper():
+        raise ValueError("XML com DTD/ENTITY não é aceito por segurança.")
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as exc:
+        raise ValueError(f"XML inválido: {exc}") from exc
+
+    bible_name = first_attr(root, ("biblename", "name", "title"))
+    if not bible_name:
+        bible_name = Path(filename).stem.replace("_", " ") or "Bíblia"
+
+    books: list[dict[str, Any]] = []
+    book_tags = {"BIBLEBOOK", "BOOK", "B"}
+    chapter_tags = {"CHAPTER", "CHAP", "C"}
+    verse_tags = {"VERS", "VERSE", "V"}
+
+    for book_index, book_node in enumerate(root.iter(), start=1):
+        if strip_xml_namespace(book_node.tag) not in book_tags:
+            continue
+        book_name = first_attr(
+            book_node,
+            ("bname", "bsname", "name", "bookname", "n", "osisid"),
+            f"Livro {len(books) + 1}",
+        )
+        chapters: list[dict[str, Any]] = []
+        for chapter_node in list(book_node):
+            if strip_xml_namespace(chapter_node.tag) not in chapter_tags:
+                continue
+            chapter_number = first_attr(
+                chapter_node, ("cnumber", "number", "n", "id"), str(len(chapters) + 1)
+            )
+            verses: list[dict[str, str]] = []
+            for verse_node in chapter_node.iter():
+                if strip_xml_namespace(verse_node.tag) not in verse_tags:
+                    continue
+                verse_number = first_attr(
+                    verse_node, ("vnumber", "number", "n", "id"), str(len(verses) + 1)
+                )
+                text = element_text(verse_node)
+                if text:
+                    verses.append({"number": verse_number, "text": text})
+            if verses:
+                chapters.append({"number": chapter_number, "verses": verses})
+        if chapters:
+            books.append({"name": book_name, "chapters": chapters})
+
+    if not books:
+        raise ValueError(
+            "Nenhum livro foi encontrado. Use XML Zefania (BIBLEBOOK/CHAPTER/VERS)."
+        )
+
+    return {
+        "id": f"bible-{uuid.uuid4().hex[:12]}",
+        "name": bible_name,
+        "filename": Path(filename).name,
+        "format": "Zefania XML",
+        "books": books,
+        "createdAt": int(time.time()),
+    }
+
+
+def strip_lrc_timestamps(text: str) -> str:
+    lines = []
+    for line in clean_text(text).split("\n"):
+        line = re.sub(r"^(?:\[[0-9:.]+])+", "", line).strip()
+        if line and not re.match(r"^\[(ar|ti|al|by|offset):", line, re.I):
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def search_key(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "").casefold())
+    without_marks = "".join(
+        character for character in normalized if not unicodedata.combining(character)
+    )
+    return " ".join(without_marks.split())
+
+
+def font_family_for(filename: str) -> str:
+    digest = hashlib.sha1(filename.encode("utf-8")).hexdigest()[:10]
+    return f"NexStageFont-{digest}"
+
+
+def font_format(suffix: str) -> str:
+    return {
+        ".ttf": "truetype",
+        ".otf": "opentype",
+        ".woff": "woff",
+        ".woff2": "woff2",
+    }.get(suffix.lower(), "truetype")
+
+
+def list_fonts() -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    try:
+        paths = sorted(FONT_DIR.iterdir(), key=lambda item: item.name.casefold())
+    except FileNotFoundError:
+        return results
+    for path in paths:
+        if not path.is_file() or path.suffix.lower() not in {".ttf", ".otf", ".woff", ".woff2"}:
+            continue
+        results.append(
+            {
+                "name": path.stem.replace("_", " ").replace("-", " "),
+                "filename": path.name,
+                "family": font_family_for(path.name),
+                "format": font_format(path.suffix),
+                "url": "/fonts/" + urllib.parse.quote(path.name),
+                "size": path.stat().st_size,
+            }
+        )
+    return results
+
+
+def louvorja_candidates(configured: str = "") -> list[Path]:
+    candidates: list[Path] = []
+    if configured.strip():
+        chosen = Path(configured.strip().strip('"'))
+        candidates.append(chosen / "database.db" if chosen.is_dir() else chosen)
+    for variable in ("ProgramFiles(x86)", "ProgramFiles"):
+        root = os.environ.get(variable, "").strip()
+        if root:
+            candidates.append(Path(root) / "Louvor JA" / "config" / "database.db")
+    candidates.extend(
+        [
+            Path(r"C:\Program Files (x86)\Louvor JA\config\database.db"),
+            Path(r"C:\Program Files\Louvor JA\config\database.db"),
+        ]
+    )
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate).casefold()
+        if key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
+def find_louvorja_database(configured: str = "") -> Path | None:
+    return next((path for path in louvorja_candidates(configured) if path.is_file()), None)
+
+
+def open_sqlite_read_only(path: Path) -> sqlite3.Connection:
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=4.0)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA query_only = ON")
+    return connection
+
+
+class LouvorJACatalog:
+    """Small metadata cache; lyrics remain in the user's database until selected."""
+
+    def __init__(self) -> None:
+        self.lock = threading.RLock()
+        self.signature: tuple[str, int, int] | None = None
+        self.items: list[dict[str, Any]] = []
+
+    def database(self, configured: str = "") -> Path:
+        path = find_louvorja_database(configured)
+        if not path:
+            raise ValueError(
+                "Louvor JA não encontrado. Confira o caminho do database.db nos Ajustes."
+            )
+        return path
+
+    @staticmethod
+    def _has_object(connection: sqlite3.Connection, name: str) -> bool:
+        return connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE lower(name)=lower(?) "
+            "AND type IN ('table','view') LIMIT 1",
+            (name,),
+        ).fetchone() is not None
+
+    def load(self, configured: str = "") -> tuple[Path, list[dict[str, Any]]]:
+        path = self.database(configured)
+        stat = path.stat()
+        signature = (str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
+        with self.lock:
+            if self.signature == signature:
+                return path, self.items
+            try:
+                with open_sqlite_read_only(path) as connection:
+                    if not self._has_object(connection, "MUSICAS"):
+                        raise ValueError("O banco não contém a estrutura MUSICAS esperada.")
+                    try:
+                        rows = connection.execute(
+                            """
+                            SELECT DISTINCT M.ID, M.NOME,
+                                   COALESCE(A.NOME, M.ALBUM, '') AS ALBUM
+                              FROM MUSICAS M
+                         LEFT JOIN ALBUM_MUSICAS AM ON AM.ID_MUSICA = M.ID
+                         LEFT JOIN ALBUM A ON A.ID = AM.ID_ALBUM
+                             WHERE M.NOME IS NOT NULL
+                          ORDER BY M.NOME COLLATE NOCASE, M.ID
+                            """
+                        ).fetchall()
+                    except sqlite3.DatabaseError:
+                        rows = connection.execute(
+                            """
+                            SELECT ID, NOME, COALESCE(ALBUM, '') AS ALBUM
+                              FROM MUSICAS
+                             WHERE NOME IS NOT NULL
+                          ORDER BY NOME COLLATE NOCASE, ID
+                            """
+                        ).fetchall()
+            except sqlite3.DatabaseError as exc:
+                raise ValueError(
+                    "Não foi possível ler o database.db do Louvor JA como SQLite."
+                ) from exc
+
+            grouped: dict[int, dict[str, Any]] = {}
+            for row in rows:
+                song_id = int(row["ID"])
+                item = grouped.setdefault(
+                    song_id,
+                    {"id": song_id, "title": str(row["NOME"] or "").strip(), "albums": []},
+                )
+                album = str(row["ALBUM"] or "").strip()
+                if album and album not in item["albums"]:
+                    item["albums"].append(album)
+            self.items = list(grouped.values())
+            self.signature = signature
+            return path, self.items
+
+    def status(self, configured: str = "") -> dict[str, Any]:
+        path = find_louvorja_database(configured)
+        if not path:
+            return {
+                "available": False,
+                "path": configured,
+                "count": 0,
+                "message": "Louvor JA não foi encontrado automaticamente.",
+            }
+        try:
+            resolved, items = self.load(configured)
+            return {
+                "available": True,
+                "path": str(resolved),
+                "count": len(items),
+                "message": "Catálogo disponível offline.",
+            }
+        except (OSError, ValueError) as exc:
+            return {
+                "available": False,
+                "path": str(path),
+                "count": 0,
+                "message": str(exc),
+            }
+
+    def search(self, query: str, configured: str = "") -> list[dict[str, Any]]:
+        query = clean_text(query)[:180]
+        if len(query) < 2:
+            raise ValueError("Digite pelo menos dois caracteres.")
+        _, items = self.load(configured)
+        words = search_key(query).split()
+        matches = [
+            item for item in items
+            if all(word in search_key(f"{item['title']} {' '.join(item['albums'])}") for word in words)
+        ]
+        normalized_query = search_key(query)
+        matches.sort(
+            key=lambda item: (
+                not search_key(item["title"]).startswith(normalized_query),
+                search_key(item["title"]),
+                item["id"],
+            )
+        )
+        return matches[:80]
+
+    def song(self, song_id: int, configured: str = "") -> dict[str, Any]:
+        path, items = self.load(configured)
+        metadata = next((item for item in items if item["id"] == song_id), None)
+        if not metadata:
+            raise ValueError("Música não encontrada no Louvor JA.")
+        try:
+            with open_sqlite_read_only(path) as connection:
+                slides: list[sqlite3.Row] = []
+                if self._has_object(connection, "MUSICAS_SLIDE"):
+                    slides = connection.execute(
+                        """
+                        SELECT LETRA, ORDEM
+                          FROM MUSICAS_SLIDE
+                         WHERE MUSICA_ID = ?
+                           AND upper(COALESCE(TIPO, '')) = 'LETRA'
+                           AND trim(COALESCE(LETRA, '')) <> ''
+                      ORDER BY ORDEM
+                        """,
+                        (song_id,),
+                    ).fetchall()
+                if not slides and self._has_object(connection, "MUSICAS_LETRA"):
+                    slides = connection.execute(
+                        """
+                        SELECT LETRA, ORDEM
+                          FROM MUSICAS_LETRA
+                         WHERE MUSICA = ?
+                           AND COALESCE(EXIBE_SLIDE, 1) = 1
+                           AND trim(COALESCE(LETRA, '')) <> ''
+                      ORDER BY ORDEM
+                        """,
+                        (song_id,),
+                    ).fetchall()
+                texts = [str(row["LETRA"] or "").strip() for row in slides if row["LETRA"]]
+                if not texts:
+                    row = connection.execute(
+                        "SELECT LETRA FROM MUSICAS WHERE ID = ? LIMIT 1", (song_id,)
+                    ).fetchone()
+                    if row and row["LETRA"]:
+                        texts = [str(row["LETRA"]).strip()]
+        except sqlite3.DatabaseError as exc:
+            raise ValueError("Não foi possível ler a letra escolhida no banco.") from exc
+        if not texts:
+            raise ValueError("Essa música não possui letra disponível no banco.")
+        fingerprint = hashlib.sha256("\n\n".join(texts).encode("utf-8")).hexdigest()[:20]
+        return {
+            "id": f"song-{uuid.uuid4().hex[:12]}",
+            "title": metadata["title"],
+            "artist": "",
+            "album": " / ".join(metadata["albums"]),
+            "source": "Louvor JA",
+            "sourceId": str(song_id),
+            "sourceFingerprint": fingerprint,
+            "slides": [{"label": "", "text": text} for text in texts],
+            "createdAt": int(time.time()),
+        }
+
+
+LOUVOR_JA = LouvorJACatalog()
+
+
+class LouvorJABibleCatalog:
+    """Reads Bible metadata and one selected chapter from Louvor JA on demand."""
+
+    REQUIRED_OBJECTS = ("bible_version", "bible_book", "bible_verse")
+
+    def __init__(self) -> None:
+        self.lock = threading.RLock()
+        self.signature: tuple[str, int, int] | None = None
+        self.versions_cache: list[dict[str, Any]] = []
+        self.books_cache: list[dict[str, Any]] = []
+
+    def database(self, configured: str = "") -> Path:
+        path = find_louvorja_database(configured)
+        if not path:
+            raise ValueError(
+                "Bíblia do Louvor JA não encontrada. Confira o database.db nos Ajustes."
+            )
+        return path
+
+    @staticmethod
+    def _has_object(connection: sqlite3.Connection, name: str) -> bool:
+        return connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE lower(name)=lower(?) "
+            "AND type IN ('table','view') LIMIT 1",
+            (name,),
+        ).fetchone() is not None
+
+    def load(self, configured: str = "") -> tuple[Path, list[dict[str, Any]], list[dict[str, Any]]]:
+        path = self.database(configured)
+        stat = path.stat()
+        signature = (str(path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
+        with self.lock:
+            if self.signature == signature:
+                return path, self.versions_cache, self.books_cache
+            try:
+                with open_sqlite_read_only(path) as connection:
+                    missing = [
+                        name for name in self.REQUIRED_OBJECTS
+                        if not self._has_object(connection, name)
+                    ]
+                    if missing:
+                        raise ValueError(
+                            "Este database.db não contém a Bíblia esperada do Louvor JA."
+                        )
+                    version_rows = connection.execute(
+                        """
+                        SELECT id_bible_version, name, abbreviation
+                          FROM bible_version
+                         WHERE lower(id_language) = 'pt'
+                      ORDER BY id_bible_version
+                        """
+                    ).fetchall()
+                    book_rows = connection.execute(
+                        """
+                        SELECT id_bible_book, book_number, name, chapters, abbreviation
+                          FROM bible_book
+                         WHERE lower(id_language) = 'pt'
+                      ORDER BY book_number, id_bible_book
+                        """
+                    ).fetchall()
+            except sqlite3.DatabaseError as exc:
+                raise ValueError(
+                    "Não foi possível ler as versões bíblicas do database.db."
+                ) from exc
+
+            self.versions_cache = [
+                {
+                    "id": int(row["id_bible_version"]),
+                    "name": str(row["name"] or "").strip(),
+                    "abbreviation": str(row["abbreviation"] or "").strip(),
+                    "bookCount": len(book_rows),
+                }
+                for row in version_rows
+            ]
+            self.books_cache = [
+                {
+                    "index": int(row["id_bible_book"]),
+                    "number": int(row["book_number"]),
+                    "name": str(row["name"] or "").strip(),
+                    "abbreviation": str(row["abbreviation"] or "").strip(),
+                    "chapterCount": int(row["chapters"]),
+                }
+                for row in book_rows
+            ]
+            self.signature = signature
+            return path, self.versions_cache, self.books_cache
+
+    def status(self, configured: str = "") -> dict[str, Any]:
+        path = find_louvorja_database(configured)
+        if not path:
+            return {
+                "available": False,
+                "path": configured,
+                "count": 0,
+                "versions": [],
+                "message": "Louvor JA não foi encontrado automaticamente.",
+            }
+        try:
+            resolved, versions, books = self.load(configured)
+            return {
+                "available": bool(versions and books),
+                "path": str(resolved),
+                "count": len(versions),
+                "bookCount": len(books),
+                "versions": versions,
+                "message": "Versões bíblicas disponíveis offline.",
+            }
+        except (OSError, ValueError) as exc:
+            return {
+                "available": False,
+                "path": str(path),
+                "count": 0,
+                "versions": [],
+                "message": str(exc),
+            }
+
+    def books(self, version_id: int, configured: str = "") -> list[dict[str, Any]]:
+        _, versions, books = self.load(configured)
+        if not any(item["id"] == version_id for item in versions):
+            raise ValueError("Versão bíblica não encontrada no Louvor JA.")
+        return books
+
+    def chapter(
+        self,
+        version_id: int,
+        book_id: int,
+        chapter_number: int,
+        configured: str = "",
+    ) -> dict[str, Any]:
+        if version_id <= 0 or book_id <= 0 or chapter_number <= 0:
+            raise ValueError("Versão, livro ou capítulo inválido.")
+        path, versions, books = self.load(configured)
+        version = next((item for item in versions if item["id"] == version_id), None)
+        book = next((item for item in books if item["index"] == book_id), None)
+        if not version or not book or chapter_number > int(book["chapterCount"]):
+            raise ValueError("Passagem bíblica não encontrada no Louvor JA.")
+        try:
+            with open_sqlite_read_only(path) as connection:
+                rows = connection.execute(
+                    """
+                    SELECT verse, text
+                      FROM bible_verse
+                     WHERE id_bible_version = ?
+                       AND id_bible_book = ?
+                       AND chapter = ?
+                       AND trim(COALESCE(text, '')) <> ''
+                  ORDER BY verse, id_bible_verse
+                    """,
+                    (version_id, book_id, chapter_number),
+                ).fetchall()
+        except sqlite3.DatabaseError as exc:
+            raise ValueError("Não foi possível ler o capítulo escolhido.") from exc
+        verses = [
+            {"number": str(row["verse"]), "text": clean_text(str(row["text"] or ""))}
+            for row in rows
+            if clean_text(str(row["text"] or ""))
+        ]
+        if not verses:
+            raise ValueError("Esse capítulo não possui texto disponível nesta versão.")
+        return {
+            "bible": version["abbreviation"] or version["name"],
+            "bibleName": version["name"],
+            "book": book["name"],
+            "bookAbbreviation": book["abbreviation"],
+            "chapter": str(chapter_number),
+            "verses": verses,
+            "source": "Louvor JA",
+        }
+
+
+LOUVOR_JA_BIBLE = LouvorJABibleCatalog()
+
+
+class AppStore:
+    def __init__(self) -> None:
+        ensure_directories()
+        self.lock = threading.RLock()
+        self.changed = threading.Condition(self.lock)
+        self.library = read_json(LIBRARY_FILE, {"songs": [], "bibles": []})
+        self.library.setdefault("songs", [])
+        self.library.setdefault("bibles", [])
+        loaded_settings = read_json(SETTINGS_FILE, {})
+        self.settings = deep_merge(DEFAULT_SETTINGS, loaded_settings)
+
+        # Migrate the single 0.2 theme into the new independent component styles.
+        if "styles" not in loaded_settings and loaded_settings.get("theme"):
+            old_theme = deep_merge(DEFAULT_THEME, loaded_settings["theme"])
+            for section in self.settings["styles"].values():
+                for component in section.values():
+                    component.update(
+                        {
+                            "fontFamily": old_theme["fontFamily"],
+                            "textColor": old_theme["textColor"],
+                            "shadow": old_theme["shadow"],
+                            "uppercase": old_theme["uppercase"],
+                            "align": old_theme["align"],
+                        }
+                    )
+            self.settings["styles"]["song"]["text"]["fontSize"] = old_theme["fontSize"]
+            self.settings["styles"]["song"]["text"]["fontWeight"] = old_theme["fontWeight"]
+            self.settings["styles"]["song"]["text"]["maxWidth"] = old_theme["maxWidth"]
+
+        self.state = deep_merge(DEFAULT_STATE, {})
+        self.state["theme"] = {**DEFAULT_THEME, **self.settings.get("theme", {})}
+        self.state["styles"] = deep_merge(DEFAULT_STYLES, self.settings.get("styles", {}))
+        self.state["clock"] = deep_merge(DEFAULT_STATE["clock"], self.settings.get("clock", {}))
+        self.state["fonts"] = list_fonts()
+        self.state["background"] = self.settings.get("defaultBackground", "")
+        self.state["overlay"] = self.settings.get("defaultOverlay", "")
+
+    def bootstrap(self) -> dict[str, Any]:
+        with self.lock:
+            bibles = [
+                {
+                    "id": bible["id"],
+                    "name": bible["name"],
+                    "filename": bible.get("filename", ""),
+                    "format": bible.get("format", "XML"),
+                    "bookCount": len(bible.get("books", [])),
+                }
+                for bible in self.library["bibles"]
+            ]
+            return {
+                "app": {"name": APP_NAME, "version": APP_VERSION},
+                "songs": self.library["songs"],
+                "bibles": bibles,
+                "media": list_media(),
+                "fonts": list_fonts(),
+                "settings": self.settings,
+                "state": self.state,
+                "defaults": {"styles": DEFAULT_STYLES, "settings": DEFAULT_SETTINGS},
+            }
+
+    def update_state(self, incoming: dict[str, Any]) -> dict[str, Any]:
+        with self.changed:
+            safe = json.loads(json.dumps(incoming))
+            safe["revision"] = int(self.state.get("revision", 0)) + 1
+            safe["updatedAt"] = int(time.time() * 1000)
+            safe["theme"] = {**DEFAULT_THEME, **safe.get("theme", {})}
+            safe["styles"] = deep_merge(DEFAULT_STYLES, safe.get("styles", {}))
+            safe["clock"] = deep_merge(DEFAULT_STATE["clock"], safe.get("clock", {}))
+            safe["fonts"] = safe.get("fonts") or list_fonts()
+            self.state = safe
+            self.changed.notify_all()
+            return self.state
+
+    def wait_state(self, revision: int, timeout: float = 20.0) -> dict[str, Any]:
+        """Long-poll state updates so idle outputs use virtually no network/CPU."""
+        with self.changed:
+            if int(self.state.get("revision", 0)) <= revision:
+                self.changed.wait(timeout=timeout)
+            return self.state
+
+    def save_song(self, song: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            self.library["songs"].append(song)
+            atomic_write_json(LIBRARY_FILE, self.library)
+            return song
+
+    def import_external_song(self, song: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        with self.lock:
+            source = str(song.get("source", ""))
+            source_id = str(song.get("sourceId", ""))
+            existing = next(
+                (
+                    item for item in self.library["songs"]
+                    if str(item.get("source", "")) == source
+                    and str(item.get("sourceId", "")) == source_id
+                ),
+                None,
+            )
+            if existing:
+                return existing, True
+            self.library["songs"].append(song)
+            atomic_write_json(LIBRARY_FILE, self.library)
+            return song, False
+
+    def update_song(self, incoming: dict[str, Any]) -> dict[str, Any]:
+        song_id = str(incoming.get("id", ""))
+        if not song_id:
+            raise ValueError("ID da música não informado.")
+        slides = incoming.get("slides")
+        if not isinstance(slides, list) or not slides:
+            raise ValueError("A música precisa ter pelo menos um slide.")
+        normalized_slides = []
+        for slide in slides[:500]:
+            if not isinstance(slide, dict):
+                continue
+            text = clean_text(str(slide.get("text", "")))
+            label = clean_text(str(slide.get("label", "")))[:100]
+            if text:
+                normalized_slides.append({"text": text[:12000], "label": label})
+        if not normalized_slides:
+            raise ValueError("Nenhum slide com texto foi informado.")
+        with self.lock:
+            song = next((item for item in self.library["songs"] if item["id"] == song_id), None)
+            if not song:
+                raise KeyError("Música não encontrada")
+            song["title"] = clean_text(str(incoming.get("title", song.get("title", ""))))[:200]
+            song["artist"] = clean_text(str(incoming.get("artist", song.get("artist", ""))))[:200]
+            song["album"] = clean_text(str(incoming.get("album", song.get("album", ""))))[:200]
+            song["slides"] = normalized_slides
+            song["updatedAt"] = int(time.time())
+            atomic_write_json(LIBRARY_FILE, self.library)
+            return song
+
+    def delete_song(self, song_id: str) -> bool:
+        with self.lock:
+            before = len(self.library["songs"])
+            self.library["songs"] = [s for s in self.library["songs"] if s["id"] != song_id]
+            if len(self.library["songs"]) == before:
+                return False
+            atomic_write_json(LIBRARY_FILE, self.library)
+            return True
+
+    def save_bible(self, bible: dict[str, Any], raw_xml: str) -> dict[str, Any]:
+        with self.lock:
+            raw_path = BIBLE_DIR / f"{bible['id']}.xml"
+            raw_path.write_text(raw_xml, encoding="utf-8")
+            self.library["bibles"].append(bible)
+            atomic_write_json(LIBRARY_FILE, self.library)
+            return {
+                "id": bible["id"],
+                "name": bible["name"],
+                "filename": bible["filename"],
+                "format": bible["format"],
+                "bookCount": len(bible["books"]),
+            }
+
+    def bible_books(self, bible_id: str) -> list[dict[str, Any]]:
+        with self.lock:
+            bible = next((b for b in self.library["bibles"] if b["id"] == bible_id), None)
+            if not bible:
+                raise KeyError("Bíblia não encontrada")
+            return [
+                {"index": index, "name": book["name"], "chapterCount": len(book["chapters"])}
+                for index, book in enumerate(bible["books"])
+            ]
+
+    def bible_chapter(self, bible_id: str, book_index: int, chapter_index: int) -> dict[str, Any]:
+        with self.lock:
+            bible = next((b for b in self.library["bibles"] if b["id"] == bible_id), None)
+            if not bible:
+                raise KeyError("Bíblia não encontrada")
+            book = bible["books"][book_index]
+            chapter = book["chapters"][chapter_index]
+            return {
+                "bible": bible["name"],
+                "book": book["name"],
+                "chapter": chapter["number"],
+                "verses": chapter["verses"],
+            }
+
+    def save_settings(self, incoming: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            self.settings = deep_merge(self.settings, incoming)
+            self.settings = deep_merge(DEFAULT_SETTINGS, self.settings)
+            atomic_write_json(SETTINGS_FILE, self.settings)
+            return self.settings
+
+    def export_settings(self) -> dict[str, Any]:
+        """Build a portable settings file without machine-specific paths."""
+        with self.lock:
+            settings = json.loads(json.dumps(self.settings))
+            settings["louvorJaDb"] = ""
+            settings.setdefault("output", {})["preferredScreen"] = ""
+            return {
+                "kind": SETTINGS_EXPORT_KIND,
+                "schemaVersion": SETTINGS_EXPORT_SCHEMA,
+                "appVersion": APP_VERSION,
+                "exportedAt": int(time.time()),
+                "settings": settings,
+                "notIncluded": [
+                    "biblioteca de músicas",
+                    "arquivos de mídia",
+                    "arquivos de fontes",
+                    "caminho do Louvor JA",
+                    "monitor preferido",
+                ],
+            }
+
+    @staticmethod
+    def _validated_settings(incoming: Any) -> dict[str, Any]:
+        if not isinstance(incoming, dict):
+            raise ValueError("O arquivo de configurações não contém um objeto válido.")
+        if "kind" in incoming:
+            if incoming.get("kind") != SETTINGS_EXPORT_KIND:
+                raise ValueError("Este arquivo não é uma configuração do NexStage.")
+            if int(incoming.get("schemaVersion", 0)) > SETTINGS_EXPORT_SCHEMA:
+                raise ValueError("A configuração foi criada por uma versão mais nova do NexStage.")
+            incoming = incoming.get("settings")
+            if not isinstance(incoming, dict):
+                raise ValueError("O arquivo não contém a seção de configurações.")
+
+        allowed = set(DEFAULT_SETTINGS)
+        filtered = {key: value for key, value in incoming.items() if key in allowed}
+        settings = deep_merge(DEFAULT_SETTINGS, filtered)
+
+        # Text sizes intentionally have no maximum. Only invalid, infinite or
+        # non-positive values fall back to the component default.
+        for section, components in settings.get("styles", {}).items():
+            if not isinstance(components, dict):
+                continue
+            for component, style in components.items():
+                if not isinstance(style, dict):
+                    continue
+                default_style = DEFAULT_STYLES.get(section, {}).get(component, {})
+                for key in ("fontSize", "minFontSize"):
+                    value = style.get(key, default_style.get(key, 26))
+                    try:
+                        number = float(value)
+                    except (TypeError, ValueError):
+                        number = float(default_style.get(key, 26))
+                    if not math.isfinite(number) or number <= 0:
+                        number = float(default_style.get(key, 26))
+                    style[key] = int(number) if number.is_integer() else number
+        return settings
+
+    def import_settings(self, bundle: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            imported = self._validated_settings(bundle)
+            # These identify hardware and a local installation, so importing a
+            # visual preset must not unexpectedly replace them.
+            imported["louvorJaDb"] = self.settings.get("louvorJaDb", "")
+            imported.setdefault("output", {})["preferredScreen"] = (
+                self.settings.get("output", {}).get("preferredScreen", "")
+            )
+            self.settings = imported
+            atomic_write_json(SETTINGS_FILE, self.settings)
+            self.state["theme"] = deep_merge(DEFAULT_THEME, self.settings.get("theme", {}))
+            self.state["styles"] = deep_merge(DEFAULT_STYLES, self.settings.get("styles", {}))
+            self.state["clock"] = deep_merge(DEFAULT_STATE["clock"], self.settings.get("clock", {}))
+            self.state["background"] = self.settings.get("defaultBackground", "")
+            self.state["overlay"] = self.settings.get("defaultOverlay", "")
+            self.state["revision"] = int(self.state.get("revision", 0)) + 1
+            self.state["updatedAt"] = int(time.time() * 1000)
+            self.changed.notify_all()
+            return self.settings
+
+
+def list_media() -> list[dict[str, Any]]:
+    results = []
+    allowed = {".mp4", ".webm", ".mov", ".m4v", ".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    try:
+        paths = sorted(MEDIA_DIR.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True)
+    except FileNotFoundError:
+        return []
+    for path in paths:
+        if path.is_file() and path.suffix.lower() in allowed:
+            mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            results.append(
+                {
+                    "name": path.name,
+                    "url": "/media/" + urllib.parse.quote(path.name),
+                    "type": "video" if mime.startswith("video/") else "image",
+                    "size": path.stat().st_size,
+                }
+            )
+    return results
+
+
+STORE = AppStore()
+
+
+class NexStageHandler(BaseHTTPRequestHandler):
+    server_version = f"{APP_NAME}/{APP_VERSION}"
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        if getattr(self.server, "quiet", False):
+            return
+        sys.stdout.write("[%s] %s\n" % (self.log_date_time_string(), fmt % args))
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_header("Allow", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_GET(self) -> None:  # noqa: N802
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
+        try:
+            if path == "/api/bootstrap":
+                self.send_json(STORE.bootstrap(), cache=False)
+            elif path == "/api/state":
+                revision = int(query.get("since", ["0"])[0])
+                self.send_json(STORE.wait_state(revision), cache=False)
+            elif path == "/api/media":
+                self.send_json(list_media(), cache=False)
+            elif path == "/api/fonts":
+                self.send_json(list_fonts(), cache=False)
+            elif path == "/api/lyrics/search":
+                self.handle_lyrics_search(query.get("q", [""])[0])
+            elif path == "/api/louvorja/status":
+                self.send_json(
+                    LOUVOR_JA.status(str(STORE.settings.get("louvorJaDb", ""))),
+                    cache=False,
+                )
+            elif path == "/api/louvorja/search":
+                self.send_json(
+                    LOUVOR_JA.search(
+                        query.get("q", [""])[0],
+                        str(STORE.settings.get("louvorJaDb", "")),
+                    ),
+                    cache=False,
+                )
+            elif path == "/api/louvorja/bible/status":
+                self.send_json(
+                    LOUVOR_JA_BIBLE.status(
+                        str(STORE.settings.get("louvorJaDb", ""))
+                    ),
+                    cache=False,
+                )
+            elif path == "/api/louvorja/bible/books":
+                self.send_json(
+                    LOUVOR_JA_BIBLE.books(
+                        int(query.get("version", ["0"])[0]),
+                        str(STORE.settings.get("louvorJaDb", "")),
+                    ),
+                    cache=False,
+                )
+            elif path == "/api/louvorja/bible/chapter":
+                self.send_json(
+                    LOUVOR_JA_BIBLE.chapter(
+                        int(query.get("version", ["0"])[0]),
+                        int(query.get("book", ["0"])[0]),
+                        int(query.get("chapter", ["0"])[0]),
+                        str(STORE.settings.get("louvorJaDb", "")),
+                    ),
+                    cache=False,
+                )
+            elif path == "/api/settings/export":
+                self.send_json(STORE.export_settings(), cache=False)
+            elif path.startswith("/api/bible/") and path.endswith("/books"):
+                bible_id = path.split("/")[3]
+                self.send_json(STORE.bible_books(bible_id), cache=False)
+            elif path.startswith("/api/bible/") and path.endswith("/chapter"):
+                bible_id = path.split("/")[3]
+                book = int(query.get("book", ["0"])[0])
+                chapter = int(query.get("chapter", ["0"])[0])
+                self.send_json(STORE.bible_chapter(bible_id, book, chapter), cache=False)
+            elif path.startswith("/media/"):
+                self.serve_media(path[len("/media/") :])
+            elif path.startswith("/fonts/"):
+                self.serve_font(path[len("/fonts/") :])
+            else:
+                self.serve_web(path)
+        except (KeyError, IndexError, ValueError) as exc:
+            self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+        except BrokenPipeError:
+            pass
+        except Exception as exc:  # pragma: no cover - final safety boundary
+            self.send_json({"error": f"Erro interno: {exc}"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def do_POST(self) -> None:  # noqa: N802
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        try:
+            if path == "/api/media/upload":
+                self.handle_media_upload()
+                return
+            if path == "/api/font/upload":
+                self.handle_font_upload()
+                return
+            payload = self.read_json_body()
+            if path == "/api/state":
+                self.send_json(STORE.update_state(payload), cache=False)
+            elif path == "/api/song/import":
+                song = parse_song_text(
+                    str(payload.get("filename", "musica.txt")),
+                    str(payload.get("content", "")),
+                    str(payload.get("title", "")),
+                )
+                self.send_json(STORE.save_song(song), status=HTTPStatus.CREATED)
+            elif path == "/api/lyrics/import":
+                lyrics = str(payload.get("lyrics", ""))
+                song = parse_song_text(
+                    str(payload.get("filename", "letra-online.txt")),
+                    lyrics,
+                    str(payload.get("title", "")),
+                )
+                song["source"] = "LRCLIB"
+                song["artist"] = str(payload.get("artist", ""))
+                self.send_json(STORE.save_song(song), status=HTTPStatus.CREATED)
+            elif path == "/api/louvorja/import":
+                song = LOUVOR_JA.song(
+                    int(payload.get("id", 0)),
+                    str(STORE.settings.get("louvorJaDb", "")),
+                )
+                imported, already_imported = STORE.import_external_song(song)
+                self.send_json(
+                    {"song": imported, "alreadyImported": already_imported},
+                    status=HTTPStatus.OK if already_imported else HTTPStatus.CREATED,
+                )
+            elif path == "/api/song/update":
+                self.send_json(STORE.update_song(payload))
+            elif path == "/api/bible/import":
+                content = str(payload.get("content", ""))
+                bible = parse_zefania_xml(str(payload.get("filename", "biblia.xml")), content)
+                self.send_json(STORE.save_bible(bible, content), status=HTTPStatus.CREATED)
+            elif path == "/api/settings/import":
+                self.send_json(STORE.import_settings(payload), cache=False)
+            elif path == "/api/settings":
+                self.send_json(STORE.save_settings(payload))
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND)
+        except (KeyError, IndexError, ValueError, json.JSONDecodeError) as exc:
+            self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+        except Exception as exc:  # pragma: no cover
+            self.send_json({"error": f"Erro interno: {exc}"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        if path.startswith("/api/song/"):
+            song_id = path.rsplit("/", 1)[-1]
+            if STORE.delete_song(song_id):
+                self.send_json({"ok": True})
+            else:
+                self.send_json({"error": "Música não encontrada"}, status=HTTPStatus.NOT_FOUND)
+            return
+        if path.startswith("/api/media/"):
+            name = urllib.parse.unquote(path[len("/api/media/") :])
+            target = (MEDIA_DIR / Path(name).name).resolve()
+            if target.parent != MEDIA_DIR.resolve() or not target.exists():
+                self.send_json({"error": "Mídia não encontrada"}, status=HTTPStatus.NOT_FOUND)
+                return
+            target.unlink()
+            self.send_json({"ok": True})
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
+
+    def read_json_body(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0 or length > MAX_JSON_BYTES:
+            raise ValueError("Tamanho de requisição inválido")
+        raw = self.rfile.read(length)
+        return json.loads(raw.decode("utf-8"))
+
+    def handle_media_upload(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        filename = urllib.parse.unquote(self.headers.get("X-Filename", "midia"))
+        suffix = Path(filename).suffix.lower()
+        allowed = {".mp4", ".webm", ".mov", ".m4v", ".jpg", ".jpeg", ".png", ".webp", ".gif"}
+        if suffix not in allowed:
+            raise ValueError("Formato não aceito. Use MP4, WebM, MOV, JPG, PNG, WebP ou GIF.")
+        if length <= 0 or length > MAX_MEDIA_BYTES:
+            raise ValueError("Arquivo vazio ou maior que 8 GB")
+        target = unique_path(MEDIA_DIR, filename)
+        remaining = length
+        try:
+            with target.open("wb") as output:
+                while remaining:
+                    chunk = self.rfile.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise ConnectionError("Upload interrompido")
+                    output.write(chunk)
+                    remaining -= len(chunk)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+        item = next(item for item in list_media() if item["name"] == target.name)
+        self.send_json(item, status=HTTPStatus.CREATED)
+
+    def handle_font_upload(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        filename = urllib.parse.unquote(self.headers.get("X-Filename", "fonte"))
+        suffix = Path(filename).suffix.lower()
+        if suffix not in {".ttf", ".otf", ".woff", ".woff2"}:
+            raise ValueError("Formato não aceito. Use TTF, OTF, WOFF ou WOFF2.")
+        if length <= 0 or length > MAX_FONT_BYTES:
+            raise ValueError("Fonte vazia ou maior que 32 MB.")
+        target = unique_path(FONT_DIR, filename)
+        remaining = length
+        try:
+            with target.open("wb") as output:
+                while remaining:
+                    chunk = self.rfile.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise ConnectionError("Upload interrompido")
+                    output.write(chunk)
+                    remaining -= len(chunk)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+        item = next(item for item in list_fonts() if item["filename"] == target.name)
+        self.send_json(item, status=HTTPStatus.CREATED)
+
+    def handle_lyrics_search(self, query: str) -> None:
+        query = clean_text(query)[:180]
+        if len(query) < 2:
+            raise ValueError("Digite o nome da música e, se possível, o artista.")
+        url = "https://lrclib.net/api/search?" + urllib.parse.urlencode({"q": query})
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": f"{APP_NAME}/{APP_VERSION} (local church presenter)"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=8) as response:
+                raw_results = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise ValueError("Não foi possível consultar letras online agora.") from exc
+        results = []
+        for item in raw_results[:12]:
+            lyrics = item.get("plainLyrics") or strip_lrc_timestamps(item.get("syncedLyrics") or "")
+            if not lyrics:
+                continue
+            results.append(
+                {
+                    "id": item.get("id"),
+                    "title": item.get("trackName") or "Sem título",
+                    "artist": item.get("artistName") or "",
+                    "album": item.get("albumName") or "",
+                    "duration": item.get("duration"),
+                    "lyrics": lyrics,
+                }
+            )
+        self.send_json(results, cache=False)
+
+    def serve_web(self, url_path: str) -> None:
+        aliases = {
+            "/": "index.html",
+            "/output": "output.html",
+            "/obs": "obs.html",
+        }
+        relative = aliases.get(url_path, url_path.lstrip("/"))
+        target = (WEB_DIR / relative).resolve()
+        if WEB_DIR.resolve() not in target.parents and target != WEB_DIR.resolve():
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return
+        self.serve_file(target, cache_seconds=0 if target.suffix == ".html" else 3600)
+
+    def serve_media(self, encoded_name: str) -> None:
+        name = Path(urllib.parse.unquote(encoded_name)).name
+        target = (MEDIA_DIR / name).resolve()
+        if target.parent != MEDIA_DIR.resolve():
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return
+        self.serve_file(target, cache_seconds=31536000, allow_range=True)
+
+    def serve_font(self, encoded_name: str) -> None:
+        name = Path(urllib.parse.unquote(encoded_name)).name
+        target = (FONT_DIR / name).resolve()
+        if target.parent != FONT_DIR.resolve() or target.suffix.lower() not in {
+            ".ttf", ".otf", ".woff", ".woff2"
+        }:
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return
+        self.serve_file(target, cache_seconds=31536000)
+
+    def serve_file(self, target: Path, cache_seconds: int, allow_range: bool = False) -> None:
+        if not target.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        file_size = target.stat().st_size
+        mime = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        start, end = 0, file_size - 1
+        status = HTTPStatus.OK
+        range_header = self.headers.get("Range") if allow_range else None
+        if range_header:
+            match = re.match(r"bytes=(\d*)-(\d*)", range_header)
+            if match:
+                if not match.group(1) and match.group(2):
+                    suffix_length = min(int(match.group(2)), file_size)
+                    start = file_size - suffix_length
+                    end = file_size - 1
+                elif match.group(1):
+                    start = int(match.group(1))
+                    if match.group(2):
+                        end = min(int(match.group(2)), file_size - 1)
+                if start > end or start >= file_size:
+                    self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    self.send_header("Content-Range", f"bytes */{file_size}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                status = HTTPStatus.PARTIAL_CONTENT
+
+        length = end - start + 1
+        self.send_response(status)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(length))
+        self.send_header("Cache-Control", f"public, max-age={cache_seconds}" if cache_seconds else "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if allow_range:
+            self.send_header("Accept-Ranges", "bytes")
+        if status == HTTPStatus.PARTIAL_CONTENT:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+        self.end_headers()
+        with target.open("rb") as source:
+            source.seek(start)
+            remaining = length
+            while remaining:
+                chunk = source.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
+
+    def send_json(
+        self, payload: Any, status: HTTPStatus = HTTPStatus.OK, cache: bool = True
+    ) -> None:
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "private, max-age=0" if cache else "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(raw)
+
+
+class NexStageServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def port_available(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="NexStage local church presenter")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=4310)
+    parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--quiet", action="store_true")
+    args = parser.parse_args()
+
+    port = args.port
+    while port < args.port + 10 and not port_available(args.host, port):
+        port += 1
+    if port >= args.port + 10:
+        raise SystemExit("Nenhuma porta livre encontrada entre 4310 e 4319.")
+
+    server = NexStageServer((args.host, port), NexStageHandler)
+    server.quiet = args.quiet
+    url = f"http://{args.host}:{port}/"
+    print(f"\n{APP_NAME} {APP_VERSION} aberto em {url}")
+    print(f"Saída OBS: {url}obs")
+    print("Pressione Ctrl+C para encerrar.\n")
+
+    if not args.no_browser:
+        threading.Timer(0.55, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever(poll_interval=0.25)
+    except KeyboardInterrupt:
+        print("\nNexStage encerrado.")
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
