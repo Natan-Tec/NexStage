@@ -1,4 +1,4 @@
-# NexStage 0.4.1
+# NexStage 0.4.2
 
 Apresentador local para igrejas, criado para letras, Bíblia em XML ou Louvor JA, vídeos de
 fundo e integração simples com OBS. A interface é HTML/CSS/JavaScript, mas o
@@ -8,20 +8,22 @@ npm, servidor de banco de dados ou internet para apresentar.
 > O nome **NexStage** é provisório e pode ser trocado depois sem alterar a base
 > técnica.
 
-## Abrir
+## Instalar e abrir
 
 ### Windows
 
-1. Extraia a pasta completa.
-2. Coloque-a em um local definitivo, como `Documentos\NexStage`.
-3. Dê dois cliques em `instalar.bat` para criar o atalho **NexStage** na Área de
-   Trabalho com o ícone oficial.
-4. Abra pelo novo atalho. O navegador abrirá automaticamente.
+Para o público, baixe `NexStage-Setup.exe` na página de releases, abra-o e siga o
+assistente. O Windows pode pedir permissão de administrador porque o aplicativo
+é instalado em `C:\NexStage`.
 
-O instalador não exige permissão de administrador e não altera o Registro do
-Windows. Ele apenas cria um atalho para o `start.bat`; se a pasta for movida
-depois, execute `instalar.bat` novamente. Também é possível abrir diretamente
-por `start.bat`, sem instalar o atalho.
+O instalador cria atalhos na Área de Trabalho, no menu Iniciar e em Documentos.
+O NexStage abre sem terminal preto e permanece no ícone da bandeja do Windows.
+Fechar a guia do navegador não encerra o aplicativo. Para encerrar de verdade,
+clique com o botão direito no ícone da bandeja e escolha **Encerrar NexStage**.
+
+O menu da bandeja também permite abrir o controlador, abrir o telão, copiar o
+endereço do OBS e abrir a pasta dos dados. Se o NexStage já estiver executando,
+um segundo clique no atalho apenas reabre o controlador atual.
 
 ### macOS
 
@@ -46,12 +48,25 @@ python3 run.py
 
 Por padrão o controlador abre em `http://127.0.0.1:4310`.
 
-## Atualizar das versões 0.2.0, 0.3.0 ou 0.4.0
+### Executar diretamente pelo código-fonte
 
-Feche o NexStage, extraia a 0.4.1 em uma pasta nova e copie da pasta antiga para
-a nova as pastas `data` e `media`. Músicas, Bíblias, configurações, vídeos e
-logos serão preservados. Na primeira abertura, o formato antigo de aparência é
-migrado automaticamente para os novos estilos independentes.
+No Windows, o desenvolvedor também pode usar `start.bat`, desde que tenha Python
+3. Esse modo serve para desenvolvimento; a distribuição normal deve usar o
+instalador compilado.
+
+## Atualizar versões anteriores
+
+Ao instalar uma nova versão por cima da 0.4.2 ou posterior, o instalador substitui
+somente os arquivos do aplicativo. As pastas `data` e `media` são preservadas.
+
+Para migrar de um ZIP antigo, feche o NexStage, instale a versão nova e copie as
+pastas `data` e `media` da instalação anterior para `C:\NexStage`. Isso preserva
+músicas, Bíblias, configurações, vídeos, imagens, logos e fontes.
+
+Em **Ajustes › Sobre e atualizações**, o NexStage instalado pode consultar a
+release mais recente no GitHub. O download nunca é obrigatório: o instalador só
+é baixado e aberto depois da confirmação do usuário. Sem internet, a apresentação
+local continua funcionando normalmente.
 
 ## Fluxo mais rápido
 
@@ -235,13 +250,16 @@ a importação.
 
 ## Pastas importantes
 
-- `media/`: vídeos, imagens e logos importados.
-- `data/library.json`: músicas e índice das Bíblias.
-- `data/bibles/`: cópia dos XMLs importados.
-- `data/fonts/`: fontes importadas para uso no NexStage.
-- `data/settings.json`: aparência e mídia padrão.
+- `C:\NexStage\media\`: vídeos, imagens e logos importados.
+- `C:\NexStage\data\library.json`: músicas e índice das Bíblias.
+- `C:\NexStage\data\bibles\`: cópia dos XMLs importados.
+- `C:\NexStage\data\fonts\`: fontes importadas para uso no NexStage.
+- `C:\NexStage\data\settings.json`: aparência e mídia padrão.
 
 Faça backup das pastas `data` e `media` antes de formatar o computador.
+
+O desinstalador fica em `C:\NexStage` e não apaga automaticamente essas pastas
+pessoais. Se quiser removê-las também, faça isso manualmente depois do backup.
 
 ## Limites atuais
 
@@ -250,15 +268,36 @@ Faça backup das pastas `data` e `media` antes de formatar o computador.
 - A escolha automática do monitor depende da API de gerenciamento de janelas do
   navegador. Chrome e Edge atuais pedem permissão na primeira detecção; em outros
   navegadores, a janela abre normalmente e pode ser movida manualmente.
-- Ainda não há instalador `.exe`, assinatura de macOS, NDI nem controle remoto
-  pela rede.
+- Ainda não há NDI nem controle remoto pela rede.
+- macOS e Linux continuam no modo Python; esta versão não cria DMG, AppImage nem
+  outros pacotes nativos para esses sistemas.
 
 ## Desenvolvimento e testes
 
-Não há dependências externas. Rode:
+O servidor e a interface em modo Python não possuem dependências externas. Rode:
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+### Gerar `NexStage-Setup.exe` no Windows
+
+É necessário usar Windows 64 bits com Python 3 e Inno Setup 6 instalados. Abra
+`build-windows.bat`; ele cria um ambiente de compilação isolado, instala
+PyInstaller, pystray e Pillow, executa os testes e gera:
+
+```text
+release\NexStage-Setup.exe
+```
+
+Esse é o único arquivo que deve ser anexado à release para os usuários do
+Windows, sempre com o nome exato `NexStage-Setup.exe`. Os scripts de build ficam
+no repositório de código-fonte e não entram no programa instalado.
+
+O passo a passo completo está em `COMPILAR-NO-WINDOWS.md`.
+
+O executável e o instalador recebem o ícone oficial, produto **NexStage** e autor
+**Natan Gabriel** nos metadados. O código-fonte continua disponível e
+modificável conforme a licença do projeto.
 
 Projeto original, sem reaproveitamento de código do FreeShow.

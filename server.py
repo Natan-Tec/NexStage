@@ -15,11 +15,13 @@ import json
 import math
 import mimetypes
 import os
+import platform
 import re
 import shutil
 import socket
 import sqlite3
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -29,6 +31,7 @@ import urllib.request
 import uuid
 import webbrowser
 import xml.etree.ElementTree as ET
+from contextlib import closing
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,11 +39,26 @@ from typing import Any
 
 
 APP_NAME = "NexStage"
-APP_VERSION = "0.4.1"
-ROOT = Path(__file__).resolve().parent
-WEB_DIR = ROOT / "web"
-DATA_DIR = ROOT / "data"
-MEDIA_DIR = ROOT / "media"
+APP_VERSION = "0.4.2"
+APP_AUTHOR = "Natan Gabriel"
+APP_REPOSITORY = "https://github.com/Natan-Tec/NexStage"
+GITHUB_LATEST_RELEASE_API = (
+    "https://api.github.com/repos/Natan-Tec/NexStage/releases/latest"
+)
+IS_FROZEN = bool(getattr(sys, "frozen", False))
+SOURCE_ROOT = Path(__file__).resolve().parent
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", SOURCE_ROOT)).resolve()
+INSTALL_ROOT = Path(sys.executable).resolve().parent if IS_FROZEN else SOURCE_ROOT
+_configured_data_root = os.environ.get("NEXSTAGE_HOME", "").strip()
+RUNTIME_ROOT = (
+    Path(_configured_data_root).expanduser().resolve()
+    if _configured_data_root
+    else INSTALL_ROOT
+)
+ROOT = SOURCE_ROOT
+WEB_DIR = RESOURCE_ROOT / "web"
+DATA_DIR = RUNTIME_ROOT / "data"
+MEDIA_DIR = RUNTIME_ROOT / "media"
 BIBLE_DIR = DATA_DIR / "bibles"
 FONT_DIR = DATA_DIR / "fonts"
 LIBRARY_FILE = DATA_DIR / "library.json"
@@ -50,6 +68,8 @@ MAX_MEDIA_BYTES = 8 * 1024 * 1024 * 1024
 MAX_FONT_BYTES = 32 * 1024 * 1024
 SETTINGS_EXPORT_KIND = "NexStageSettings"
 SETTINGS_EXPORT_SCHEMA = 1
+MAX_UPDATE_BYTES = 512 * 1024 * 1024
+UPDATE_CACHE_SECONDS = 15 * 60
 
 DEFAULT_THEME = {
     "fontFamily": "Arial, Helvetica, sans-serif",
@@ -259,6 +279,209 @@ def unique_path(directory: Path, filename: str) -> Path:
         if not alternate.exists():
             return alternate
         counter += 1
+
+
+def version_numbers(value: str) -> tuple[int, int, int]:
+    """Return a comparable release version from values such as ``v0.4.2``."""
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", str(value))
+    if not match:
+        return (0, 0, 0)
+    return tuple(int(part) for part in match.groups())
+
+
+def update_supported() -> bool:
+    return IS_FROZEN and sys.platform == "win32"
+
+
+class UpdateService:
+    """Check and download only the official Windows installer from GitHub."""
+
+    def __init__(
+        self,
+        api_url: str = GITHUB_LATEST_RELEASE_API,
+        current_version: str = APP_VERSION,
+        supported: bool | None = None,
+    ) -> None:
+        self.api_url = api_url
+        self.current_version = current_version
+        self._supported = supported
+        self._cache: dict[str, Any] | None = None
+        self._cached_at = 0.0
+        self._lock = threading.Lock()
+
+    @property
+    def supported(self) -> bool:
+        return update_supported() if self._supported is None else self._supported
+
+    @staticmethod
+    def _request(url: str) -> urllib.request.Request:
+        return urllib.request.Request(
+            url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": f"{APP_NAME}/{APP_VERSION}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+    @staticmethod
+    def _asset_from_release(release: dict[str, Any]) -> dict[str, Any] | None:
+        for asset in release.get("assets", []):
+            if str(asset.get("name", "")).lower() == "nexstage-setup.exe":
+                return asset
+        return None
+
+    def _fetch_latest(self) -> dict[str, Any]:
+        try:
+            with urllib.request.urlopen(self._request(self.api_url), timeout=6) as response:
+                raw = response.read(2 * 1024 * 1024 + 1)
+        except urllib.error.HTTPError as exc:
+            if exc.code == HTTPStatus.NOT_FOUND:
+                raise ValueError("Ainda não há uma release publicada no GitHub.") from exc
+            raise ValueError("O GitHub não respondeu à consulta de atualização.") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise ValueError(
+                "Não foi possível verificar atualizações. Confira a internet e tente novamente."
+            ) from exc
+        if len(raw) > 2 * 1024 * 1024:
+            raise ValueError("A resposta de atualização recebida é grande demais.")
+        try:
+            release = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("O GitHub devolveu uma resposta de atualização inválida.") from exc
+
+        latest = str(release.get("tag_name", "")).lstrip("vV")
+        if version_numbers(latest) == (0, 0, 0):
+            raise ValueError("A release publicada não possui uma versão válida.")
+        asset = self._asset_from_release(release)
+        available = version_numbers(latest) > version_numbers(self.current_version)
+        result = {
+            "available": available,
+            "currentVersion": self.current_version,
+            "latestVersion": latest,
+            "releaseName": str(release.get("name") or f"NexStage {latest}"),
+            "releaseUrl": str(release.get("html_url") or APP_REPOSITORY + "/releases"),
+            "publishedAt": str(release.get("published_at") or ""),
+            "downloadReady": bool(asset),
+            "downloadName": str(asset.get("name", "")) if asset else "",
+            "downloadSize": int(asset.get("size", 0) or 0) if asset else 0,
+            "downloadUrl": str(asset.get("browser_download_url", "")) if asset else "",
+            "updateSupported": self.supported,
+        }
+        if available and not asset:
+            result["message"] = (
+                "Há uma versão nova, mas o instalador NexStage-Setup.exe não foi anexado."
+            )
+        elif available:
+            result["message"] = f"NexStage {latest} está disponível."
+        else:
+            result["message"] = "Você já está usando a versão mais recente."
+        return result
+
+    def check(self, force: bool = False) -> dict[str, Any]:
+        with self._lock:
+            fresh = time.monotonic() - self._cached_at < UPDATE_CACHE_SECONDS
+            if not force and fresh and self._cache is not None:
+                return dict(self._cache)
+            result = self._fetch_latest()
+            self._cache = result
+            self._cached_at = time.monotonic()
+            return dict(result)
+
+    @staticmethod
+    def _trusted_download_url(url: str) -> bool:
+        parsed = urllib.parse.urlparse(url)
+        host = (parsed.hostname or "").lower()
+        return parsed.scheme == "https" and (
+            host == "github.com"
+            or host.endswith(".github.com")
+            or host.endswith(".githubusercontent.com")
+        )
+
+    def download_installer(self) -> Path:
+        if not self.supported:
+            raise ValueError(
+                "A instalação automática está disponível somente no NexStage instalado no Windows."
+            )
+        info = self.check()
+        if not info.get("available"):
+            raise ValueError("Você já está usando a versão mais recente.")
+        url = str(info.get("downloadUrl", ""))
+        if not info.get("downloadReady") or not self._trusted_download_url(url):
+            raise ValueError("A release não possui um instalador oficial válido.")
+        expected_size = int(info.get("downloadSize", 0) or 0)
+        if expected_size > MAX_UPDATE_BYTES:
+            raise ValueError("O instalador publicado excede o tamanho permitido.")
+
+        destination_dir = Path(tempfile.gettempdir()) / "NexStage"
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / "NexStage-Setup.exe"
+        partial = destination.with_suffix(".exe.part")
+        try:
+            with urllib.request.urlopen(self._request(url), timeout=30) as response:
+                header_size = int(response.headers.get("Content-Length", "0") or 0)
+                if header_size > MAX_UPDATE_BYTES:
+                    raise ValueError("O instalador publicado excede o tamanho permitido.")
+                total = 0
+                with partial.open("wb") as target:
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > MAX_UPDATE_BYTES:
+                            raise ValueError("O instalador publicado excede o tamanho permitido.")
+                        target.write(chunk)
+            if expected_size and total != expected_size:
+                raise ValueError("O download do instalador ficou incompleto.")
+            with partial.open("rb") as downloaded:
+                if downloaded.read(2) != b"MZ":
+                    raise ValueError("O arquivo baixado não é um instalador válido do Windows.")
+            partial.replace(destination)
+            return destination
+        except ValueError:
+            partial.unlink(missing_ok=True)
+            raise
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            partial.unlink(missing_ok=True)
+            raise ValueError(
+                "Não foi possível baixar a atualização. Confira a internet e tente novamente."
+            ) from exc
+
+
+UPDATE_SERVICE = UpdateService()
+_UPDATE_INSTALL_CALLBACK: Any = None
+
+
+def set_update_install_callback(callback: Any) -> None:
+    global _UPDATE_INSTALL_CALLBACK
+    _UPDATE_INSTALL_CALLBACK = callback
+
+
+def open_data_folder() -> None:
+    opener = getattr(os, "startfile", None)
+    if sys.platform != "win32" or opener is None:
+        raise ValueError("Este botão está disponível no aplicativo instalado no Windows.")
+    try:
+        opener(str(DATA_DIR))
+    except OSError as exc:
+        raise ValueError("O Windows não conseguiu abrir a pasta dos dados.") from exc
+
+
+def about_info(base_url: str) -> dict[str, Any]:
+    return {
+        "name": APP_NAME,
+        "version": APP_VERSION,
+        "author": APP_AUTHOR,
+        "system": f"{platform.system()} {platform.release()} ({platform.machine()})",
+        "controllerUrl": base_url.rstrip("/") + "/",
+        "obsUrl": base_url.rstrip("/") + "/obs",
+        "dataPath": str(DATA_DIR),
+        "installPath": str(INSTALL_ROOT),
+        "repository": APP_REPOSITORY,
+        "installedBuild": IS_FROZEN,
+        "updateSupported": update_supported(),
+    }
 
 
 def parse_song_text(filename: str, content: str, title: str = "") -> dict[str, Any]:
@@ -491,8 +714,12 @@ def find_louvorja_database(configured: str = "") -> Path | None:
 
 def open_sqlite_read_only(path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=4.0)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA query_only = ON")
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+    except Exception:
+        connection.close()
+        raise
     return connection
 
 
@@ -528,7 +755,7 @@ class LouvorJACatalog:
             if self.signature == signature:
                 return path, self.items
             try:
-                with open_sqlite_read_only(path) as connection:
+                with closing(open_sqlite_read_only(path)) as connection:
                     if not self._has_object(connection, "MUSICAS"):
                         raise ValueError("O banco não contém a estrutura MUSICAS esperada.")
                     try:
@@ -622,7 +849,7 @@ class LouvorJACatalog:
         if not metadata:
             raise ValueError("Música não encontrada no Louvor JA.")
         try:
-            with open_sqlite_read_only(path) as connection:
+            with closing(open_sqlite_read_only(path)) as connection:
                 slides: list[sqlite3.Row] = []
                 if self._has_object(connection, "MUSICAS_SLIDE"):
                     slides = connection.execute(
@@ -711,7 +938,7 @@ class LouvorJABibleCatalog:
             if self.signature == signature:
                 return path, self.versions_cache, self.books_cache
             try:
-                with open_sqlite_read_only(path) as connection:
+                with closing(open_sqlite_read_only(path)) as connection:
                     missing = [
                         name for name in self.REQUIRED_OBJECTS
                         if not self._has_object(connection, name)
@@ -813,7 +1040,7 @@ class LouvorJABibleCatalog:
         if not version or not book or chapter_number > int(book["chapterCount"]):
             raise ValueError("Passagem bíblica não encontrada no Louvor JA.")
         try:
-            with open_sqlite_read_only(path) as connection:
+            with closing(open_sqlite_read_only(path)) as connection:
                 rows = connection.execute(
                     """
                     SELECT verse, text
@@ -899,7 +1126,13 @@ class AppStore:
                 for bible in self.library["bibles"]
             ]
             return {
-                "app": {"name": APP_NAME, "version": APP_VERSION},
+                "app": {
+                    "name": APP_NAME,
+                    "version": APP_VERSION,
+                    "author": APP_AUTHOR,
+                    "repository": APP_REPOSITORY,
+                    "updateSupported": update_supported(),
+                },
                 "songs": self.library["songs"],
                 "bibles": bibles,
                 "media": list_media(),
@@ -1162,6 +1395,14 @@ class NexStageHandler(BaseHTTPRequestHandler):
         try:
             if path == "/api/bootstrap":
                 self.send_json(STORE.bootstrap(), cache=False)
+            elif path == "/api/about":
+                self.send_json(
+                    about_info(getattr(self.server, "base_url", "http://127.0.0.1:4310")),
+                    cache=False,
+                )
+            elif path == "/api/update/check":
+                force = query.get("force", ["0"])[0] == "1"
+                self.send_json(UPDATE_SERVICE.check(force=force), cache=False)
             elif path == "/api/state":
                 revision = int(query.get("since", ["0"])[0])
                 self.send_json(STORE.wait_state(revision), cache=False)
@@ -1282,6 +1523,23 @@ class NexStageHandler(BaseHTTPRequestHandler):
                 self.send_json(STORE.import_settings(payload), cache=False)
             elif path == "/api/settings":
                 self.send_json(STORE.save_settings(payload))
+            elif path == "/api/system/open-data":
+                open_data_folder()
+                self.send_json({"ok": True}, cache=False)
+            elif path == "/api/update/apply":
+                if _UPDATE_INSTALL_CALLBACK is None:
+                    raise ValueError(
+                        "O instalador automático só funciona no NexStage instalado no Windows."
+                    )
+                installer = UPDATE_SERVICE.download_installer()
+                self.send_json(
+                    {
+                        "ok": True,
+                        "message": "Atualização baixada. O instalador será aberto agora.",
+                    },
+                    cache=False,
+                )
+                threading.Timer(0.7, _UPDATE_INSTALL_CALLBACK, args=(installer,)).start()
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
         except (KeyError, IndexError, ValueError, json.JSONDecodeError) as exc:
@@ -1505,6 +1763,23 @@ def port_available(host: str, port: int) -> bool:
             return False
 
 
+def create_server(
+    host: str = "127.0.0.1", start_port: int = 4310, quiet: bool = False
+) -> tuple[NexStageServer, int]:
+    port = start_port
+    while port < start_port + 10 and not port_available(host, port):
+        port += 1
+    if port >= start_port + 10:
+        raise OSError(
+            f"Nenhuma porta livre encontrada entre {start_port} e {start_port + 9}."
+        )
+    instance = NexStageServer((host, port), NexStageHandler)
+    instance.quiet = quiet
+    public_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+    instance.base_url = f"http://{public_host}:{port}"
+    return instance, port
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="NexStage local church presenter")
     parser.add_argument("--host", default="127.0.0.1")
@@ -1513,15 +1788,11 @@ def main() -> None:
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
-    port = args.port
-    while port < args.port + 10 and not port_available(args.host, port):
-        port += 1
-    if port >= args.port + 10:
-        raise SystemExit("Nenhuma porta livre encontrada entre 4310 e 4319.")
-
-    server = NexStageServer((args.host, port), NexStageHandler)
-    server.quiet = args.quiet
-    url = f"http://{args.host}:{port}/"
+    try:
+        server, port = create_server(args.host, args.port, args.quiet)
+    except OSError as exc:
+        raise SystemExit(str(exc)) from exc
+    url = server.base_url + "/"
     print(f"\n{APP_NAME} {APP_VERSION} aberto em {url}")
     print(f"Saída OBS: {url}obs")
     print("Pressione Ctrl+C para encerrar.\n")

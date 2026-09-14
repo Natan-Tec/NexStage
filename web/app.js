@@ -37,7 +37,10 @@
     confirmDelete: $("#confirmDelete"), confirmClear: $("#confirmClear"), crossfadeMs: $("#crossfadeMs"), crossfadeOut: $("#crossfadeOut"), previewMode: $("#previewMode"),
     songShowLabels: $("#songShowLabels"), songShowCredits: $("#songShowCredits"), songCreditsFormat: $("#songCreditsFormat"),
     fontCount: $("#fontCount"), slideDialog: $("#slideDialog"), slideDialogTitle: $("#slideDialogTitle"), slideLabel: $("#slideLabel"), slideText: $("#slideText"),
-    songEditTitle: $("#songEditTitle"), songEditArtist: $("#songEditArtist"), songEditAlbum: $("#songEditAlbum")
+    songEditTitle: $("#songEditTitle"), songEditArtist: $("#songEditArtist"), songEditAlbum: $("#songEditAlbum"),
+    aboutVersion: $("#aboutVersion"), aboutSystem: $("#aboutSystem"), aboutController: $("#aboutController"),
+    aboutObs: $("#aboutObs"), aboutDataPath: $("#aboutDataPath"), aboutGithub: $("#aboutGithub"),
+    updateStatus: $("#updateStatus"), checkUpdates: $("#checkUpdates"), installUpdate: $("#installUpdate"), openDataFolder: $("#openDataFolder")
   };
 
   const app = {
@@ -45,7 +48,8 @@
     state: null, deck: [], deckTitle: "", selectedSongId: "", currentIndex: -1,
     pickerMode: "background", monitorView: "output", draftMode: "song", visualEditorMode: "", styleTarget: "song.text",
     videoFrameCache: new Map(), toastTimer: null, settingsTimer: null, visualTimer: null,
-    ljaStatus: null, ljaBibleStatus: null, screens: [], screenDetails: null, screenEventsBound: false, editingSlide: -1, drag: null
+    ljaStatus: null, ljaBibleStatus: null, screens: [], screenDetails: null, screenEventsBound: false, editingSlide: -1, drag: null,
+    appInfo: null, updateInfo: null
   };
 
   const STYLE_TARGETS = {
@@ -90,6 +94,75 @@
     const units = ["B", "KB", "MB", "GB"];
     const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), 3);
     return `${(bytes / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
+  }
+
+  function setUpdateStatus(message, state = "idle") {
+    refs.updateStatus.textContent = message;
+    refs.updateStatus.dataset.state = state;
+  }
+
+  async function loadAbout() {
+    try {
+      const info = await api("/api/about");
+      app.appInfo = info;
+      refs.aboutVersion.textContent = info.version;
+      refs.aboutSystem.textContent = info.system;
+      refs.aboutController.textContent = info.controllerUrl;
+      refs.aboutObs.textContent = info.obsUrl;
+      refs.aboutDataPath.textContent = info.dataPath;
+      refs.aboutGithub.href = info.repository;
+      refs.aboutGithub.textContent = info.repository.replace(/^https?:\/\//, "");
+      if (!info.installedBuild) {
+        setUpdateStatus("Modo Python: a atualização automática é usada somente na versão instalada do Windows.");
+      }
+    } catch (error) {
+      setUpdateStatus(`Não foi possível carregar as informações: ${error.message}`, "error");
+    }
+  }
+
+  async function checkForUpdates(silent = false, force = false) {
+    refs.checkUpdates.disabled = true;
+    if (!silent) setUpdateStatus("Consultando a release mais recente no GitHub…");
+    try {
+      const info = await api(`/api/update/check${force ? "?force=1" : ""}`);
+      app.updateInfo = info;
+      refs.installUpdate.hidden = !(info.available && info.downloadReady && info.updateSupported);
+      if (info.available) {
+        const size = info.downloadSize ? ` • ${formatBytes(info.downloadSize)}` : "";
+        const suffix = info.updateSupported
+          ? `${size} Clique em “Baixar e instalar”.`
+          : " Abra a página de releases para baixar manualmente.";
+        setUpdateStatus(`${info.message}${suffix}`, "available");
+        if (!silent) toast(`NexStage ${info.latestVersion} disponível`, "A atualização é opcional.");
+      } else {
+        setUpdateStatus(info.message, "ok");
+        if (!silent) toast("NexStage atualizado", info.message);
+      }
+    } catch (error) {
+      refs.installUpdate.hidden = true;
+      setUpdateStatus(error.message, "error");
+      if (!silent) toast("Falha ao verificar atualização", error.message);
+    } finally {
+      refs.checkUpdates.disabled = false;
+    }
+  }
+
+  async function installAvailableUpdate() {
+    const version = app.updateInfo?.latestVersion || "mais recente";
+    if (!confirm(`Baixar e instalar o NexStage ${version}?\n\nO NexStage será encerrado e o instalador será aberto.`)) return;
+    refs.installUpdate.disabled = true;
+    refs.checkUpdates.disabled = true;
+    setUpdateStatus("Baixando o instalador oficial… mantenha o NexStage aberto.", "available");
+    try {
+      const result = await api("/api/update/apply", { method: "POST", body: "{}" });
+      setUpdateStatus(result.message, "ok");
+      toast("Atualização pronta", "O instalador será aberto em instantes.");
+    } catch (error) {
+      refs.installUpdate.disabled = false;
+      refs.checkUpdates.disabled = false;
+      setUpdateStatus(error.message, "error");
+      toast("Não foi possível atualizar", error.message);
+    }
   }
 
   function isVideo(url) { return /\.(mp4|webm|mov|m4v)(?:\?|$)/i.test(url || ""); }
@@ -1071,7 +1144,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.4.1"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.4.2"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }
@@ -1264,6 +1337,15 @@
     $("#exportSettings").addEventListener("click", exportSettingsFile);
     $("#importSettings").addEventListener("click", () => refs.settingsInput.click());
     refs.settingsInput.addEventListener("change", event => importSettingsFile(event.target.files[0]));
+    refs.checkUpdates.addEventListener("click", () => checkForUpdates(false, true));
+    refs.installUpdate.addEventListener("click", installAvailableUpdate);
+    refs.openDataFolder.addEventListener("click", async () => {
+      try {
+        await api("/api/system/open-data", { method: "POST", body: "{}" });
+      } catch (error) {
+        toast("Não foi possível abrir a pasta", error.message);
+      }
+    });
     $("#detectScreens").addEventListener("click", () => detectScreens(false));
     refs.screenSelect.addEventListener("change", () => { app.settings.output = { ...(app.settings.output || {}), preferredScreen: refs.screenSelect.value }; saveSettings(); });
     $("#openOutput").addEventListener("click", openOutputWindow);
@@ -1332,6 +1414,8 @@
       applySettingsControls(); renderFontFaces(); populateFontOptions(); renderScreens();
       renderSongs(); renderBibles(); renderMedia(); renderSlides(); applyThemeControls(); renderPreview(); updateLiveUi(); updateClockPreview(); wireEvents();
       refreshLjaStatus(); restoreScreensIfAllowed();
+      await loadAbout();
+      if (app.appInfo?.updateSupported) setTimeout(() => checkForUpdates(true), 1800);
       setInterval(updateClockPreview, 500);
     } catch (error) {
       document.body.innerHTML = `<main style="font:16px system-ui;padding:40px;color:white"><h1>NexStage não iniciou</h1><p>${String(error.message).replace(/[<>]/g, "")}</p></main>`;

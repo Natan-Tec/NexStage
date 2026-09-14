@@ -6,7 +6,9 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import closing
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -77,7 +79,7 @@ class LouvorJATests(unittest.TestCase):
     def test_local_catalog_search_and_import_are_read_only(self):
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "database.db"
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 connection.executescript(
                     """
                     CREATE TABLE MUSICAS (ID INTEGER, NOME TEXT, ALBUM TEXT, LETRA TEXT);
@@ -89,19 +91,32 @@ class LouvorJATests(unittest.TestCase):
                 )
             before = hashlib.sha256(database.read_bytes()).hexdigest()
             catalog = server.LouvorJACatalog()
-            status = catalog.status(str(database))
-            self.assertTrue(status["available"])
-            self.assertEqual(status["count"], 1)
-            self.assertEqual(catalog.search("coracao", str(database))[0]["id"], 7)
-            song = catalog.song(7, str(database))
+            connections = []
+            actual_open = server.open_sqlite_read_only
+
+            def tracked_open(path):
+                opened = actual_open(path)
+                connections.append(opened)
+                return opened
+
+            with mock.patch("server.open_sqlite_read_only", side_effect=tracked_open):
+                status = catalog.status(str(database))
+                self.assertTrue(status["available"])
+                self.assertEqual(status["count"], 1)
+                self.assertEqual(catalog.search("coracao", str(database))[0]["id"], 7)
+                song = catalog.song(7, str(database))
             self.assertEqual(song["source"], "Louvor JA")
             self.assertEqual([slide["text"] for slide in song["slides"]], ["Primeiro slide", "Segundo slide"])
             self.assertEqual(before, hashlib.sha256(database.read_bytes()).hexdigest())
+            self.assertGreaterEqual(len(connections), 2)
+            for opened in connections:
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    opened.execute("SELECT 1")
 
     def test_bible_versions_and_chapter_are_read_only(self):
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "database.db"
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 connection.executescript(
                     """
                     CREATE TABLE bible_version (
@@ -126,15 +141,28 @@ class LouvorJATests(unittest.TestCase):
                 )
             before = hashlib.sha256(database.read_bytes()).hexdigest()
             catalog = server.LouvorJABibleCatalog()
-            status = catalog.status(str(database))
-            self.assertTrue(status["available"])
-            self.assertEqual(status["versions"][0]["abbreviation"], "NVI")
-            self.assertEqual(catalog.books(5, str(database))[0]["name"], "João")
-            chapter = catalog.chapter(5, 43, 3, str(database))
+            connections = []
+            actual_open = server.open_sqlite_read_only
+
+            def tracked_open(path):
+                opened = actual_open(path)
+                connections.append(opened)
+                return opened
+
+            with mock.patch("server.open_sqlite_read_only", side_effect=tracked_open):
+                status = catalog.status(str(database))
+                self.assertTrue(status["available"])
+                self.assertEqual(status["versions"][0]["abbreviation"], "NVI")
+                self.assertEqual(catalog.books(5, str(database))[0]["name"], "João")
+                chapter = catalog.chapter(5, 43, 3, str(database))
             self.assertEqual(chapter["bible"], "NVI")
             self.assertEqual(chapter["bookAbbreviation"], "Jo")
             self.assertEqual(chapter["verses"], [{"number": "16", "text": "Porque Deus amou o mundo."}])
             self.assertEqual(before, hashlib.sha256(database.read_bytes()).hexdigest())
+            self.assertGreaterEqual(len(connections), 2)
+            for opened in connections:
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    opened.execute("SELECT 1")
 
 
 class SettingsMigrationTests(unittest.TestCase):
@@ -176,6 +204,60 @@ class SettingsMigrationTests(unittest.TestCase):
                 self.assertEqual(store.state["revision"], revision + 1)
             finally:
                 (server.DATA_DIR, server.MEDIA_DIR, server.BIBLE_DIR, server.FONT_DIR, server.LIBRARY_FILE, server.SETTINGS_FILE) = original_paths
+
+
+class UpdateTests(unittest.TestCase):
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+            self.headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _size=-1):
+            return self.payload
+
+    def test_version_parser(self):
+        self.assertEqual(server.version_numbers("v0.4.12"), (0, 4, 12))
+        self.assertGreater(server.version_numbers("0.5.0"), server.version_numbers("0.4.9"))
+
+    def test_official_release_asset_is_detected(self):
+        release = {
+            "tag_name": "v0.4.3",
+            "name": "NexStage 0.4.3",
+            "html_url": "https://github.com/Natan-Tec/NexStage/releases/tag/v0.4.3",
+            "assets": [{
+                "name": "NexStage-Setup.exe",
+                "size": 123456,
+                "browser_download_url": "https://github.com/Natan-Tec/NexStage/releases/download/v0.4.3/NexStage-Setup.exe",
+            }],
+        }
+        response = self.FakeResponse(json.dumps(release).encode("utf-8"))
+        service = server.UpdateService(current_version="0.4.2", supported=True)
+        with mock.patch("server.urllib.request.urlopen", return_value=response):
+            info = service.check()
+        self.assertTrue(info["available"])
+        self.assertTrue(info["downloadReady"])
+        self.assertTrue(info["updateSupported"])
+        self.assertEqual(info["latestVersion"], "0.4.3")
+
+    def test_update_download_rejects_untrusted_hosts(self):
+        self.assertTrue(server.UpdateService._trusted_download_url(
+            "https://github.com/Natan-Tec/NexStage/releases/download/v1/NexStage-Setup.exe"
+        ))
+        self.assertFalse(server.UpdateService._trusted_download_url(
+            "https://example.com/NexStage-Setup.exe"
+        ))
+
+    def test_about_has_correct_author_and_paths(self):
+        info = server.about_info("http://127.0.0.1:4317")
+        self.assertEqual(info["author"], "Natan Gabriel")
+        self.assertEqual(info["controllerUrl"], "http://127.0.0.1:4317/")
+        self.assertEqual(info["obsUrl"], "http://127.0.0.1:4317/obs")
 
 
 if __name__ == "__main__":

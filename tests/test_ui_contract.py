@@ -85,12 +85,33 @@ class ControllerPreviewContractTests(unittest.TestCase):
         self.assertRegex(self.html, r'id="fontSizeNumber"[^>]*min="1"')
         self.assertNotRegex(self.html, r'id="fontSizeNumber"[^>]*max=')
 
-    def test_041_windows_installer_creates_a_desktop_shortcut(self):
-        installer = (ROOT / "instalar.bat").read_text(encoding="utf-8")
-        self.assertIn("WScript.Shell", installer)
-        self.assertIn("NexStage.lnk", installer)
-        self.assertIn("start.bat", installer)
-        self.assertIn(r"web\favicon.ico", installer)
+    def test_042_about_and_updater_controls_exist(self):
+        required = {
+            "aboutVersion", "aboutSystem", "aboutController", "aboutObs",
+            "aboutDataPath", "aboutGithub", "updateStatus", "checkUpdates",
+            "installUpdate", "openDataFolder",
+        }
+        self.assertTrue(required.issubset(self.parser.ids))
+        self.assertIn("function checkForUpdates", self.javascript)
+        self.assertIn("/api/update/apply", self.javascript)
+
+    def test_042_windows_installer_contract(self):
+        installer = (ROOT / "packaging" / "windows" / "NexStage.iss").read_text(encoding="utf-8")
+        launcher = (ROOT / "windows_launcher.py").read_text(encoding="utf-8")
+        build = (ROOT / "build-windows.bat").read_text(encoding="utf-8")
+        self.assertIn(r"DefaultDirName=C:\NexStage", installer)
+        self.assertIn("MyAppPublisher \"Natan Gabriel\"", installer)
+        self.assertIn("NexStage-Setup", installer)
+        self.assertIn("uninsneveruninstall", installer)
+        for label in (
+            "Abrir controlador", "Abrir telão", "Copiar endereço do OBS",
+            "Abrir pasta dos dados", "Encerrar NexStage",
+        ):
+            self.assertIn(label, launcher)
+        self.assertIn("--windowed", build)
+        self.assertIn("--contents-directory app", build)
+        self.assertIn(r"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe", build)
+        self.assertFalse((ROOT / "instalar.bat").exists())
 
 
 if __name__ == "__main__":
