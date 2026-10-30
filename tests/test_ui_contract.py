@@ -95,6 +95,24 @@ class ControllerPreviewContractTests(unittest.TestCase):
         self.assertIn("function checkForUpdates", self.javascript)
         self.assertIn("/api/update/apply", self.javascript)
 
+    def test_043_bible_quick_reference_verse_navigation_and_release_workflow(self):
+        required = {
+            "bibleQuick", "bibleQuickGo", "bibleQuickHint", "verseSelect", "verseToSelect",
+            "bibleJoin", "biblePrevChapter", "bibleNextChapter",
+        }
+        self.assertTrue(required.issubset(self.parser.ids))
+        self.assertTrue((WEB / "bible-ref.js").is_file())
+        self.assertLess(self.html.index('/bible-ref.js'), self.html.index('/app.js'))
+        for name in ("function openChapter", "function stepSlide", "function restoreBibleOnce",
+                     "function captureBibleContext", "function bibleQuickGo", "function applyBibleSelection"):
+            self.assertIn(name, self.javascript)
+        reference = (WEB / "bible-ref.js").read_text(encoding="utf-8")
+        for name in ("function parse", "function findBook", "function resolve"):
+            self.assertIn(name, reference)
+        workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        for fragment in ("windows-latest", "NexStage-Setup.exe", "NexStage.iss", "unittest discover", "--windowed"):
+            self.assertIn(fragment, workflow)
+
     def test_042_windows_installer_contract(self):
         installer = (ROOT / "packaging" / "windows" / "NexStage.iss").read_text(encoding="utf-8")
         launcher = (ROOT / "windows_launcher.py").read_text(encoding="utf-8")

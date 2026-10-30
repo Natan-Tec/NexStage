@@ -1,0 +1,110 @@
+name: Compilar e publicar o instalador
+
+# Envie uma tag como v0.4.3 para compilar e publicar a release com NexStage-Setup.exe.
+# Também dá para rodar manualmente (Actions > Run workflow) só para testar a compilação:
+# nesse caso o instalador fica disponível como "artifact", sem criar release.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar o Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Ler a versão do NexStage
+        id: ver
+        shell: bash
+        run: |
+          VERSION=$(python -c "import server; print(server.APP_VERSION)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "NexStage $VERSION"
+
+      - name: Conferir se a tag bate com a versão do código
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "v${{ steps.ver.outputs.version }}" ]; then
+            echo "A tag ${GITHUB_REF_NAME} não bate com a versão do código (v${{ steps.ver.outputs.version }})."
+            echo "Atualize APP_VERSION em server.py e windows_launcher.py, ou use a tag certa."
+            exit 1
+          fi
+
+      - name: Instalar as ferramentas de compilação
+        run: python -m pip install --disable-pip-version-check -r requirements-build.txt
+
+      - name: Rodar os testes
+        run: python -m unittest discover -s tests -v
+
+      - name: Gerar o NexStage.exe (sem janela de terminal)
+        shell: bash
+        run: |
+          python -m PyInstaller \
+            --noconfirm \
+            --clean \
+            --onedir \
+            --windowed \
+            --noupx \
+            --name NexStage \
+            --icon "web/favicon.ico" \
+            --version-file "packaging/windows/version_info.txt" \
+            --contents-directory app \
+            --add-data "web;web" \
+            --hidden-import pystray._win32 \
+            windows_launcher.py
+          cp README.md LICENSE.txt dist/NexStage/
+          cp "CHANGELOG-${{ steps.ver.outputs.version }}.md" dist/NexStage/
+
+      - name: Instalar o Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = @(
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) { throw "Inno Setup 6 não foi encontrado." }
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Criar o instalador NexStage-Setup.exe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          & "$env:ISCC" "packaging\windows\NexStage.iss"
+          if ($LASTEXITCODE -ne 0) { throw "O Inno Setup falhou." }
+          if (-not (Test-Path "release\NexStage-Setup.exe")) { throw "release\NexStage-Setup.exe não foi gerado." }
+          Get-Item "release\NexStage-Setup.exe" | Select-Object Name, Length
+
+      - name: Guardar o instalador (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexStage-Setup
+          path: release/NexStage-Setup.exe
+          if-no-files-found: error
+
+      - name: Publicar a release no GitHub
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: NexStage ${{ steps.ver.outputs.version }}
+          body_path: CHANGELOG-${{ steps.ver.outputs.version }}.md
+          files: release/NexStage-Setup.exe
+          fail_on_unmatched_files: true

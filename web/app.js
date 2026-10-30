@@ -6,6 +6,9 @@
   const refs = {
     songList: $("#songList"), songCount: $("#songCount"), songFilter: $("#songFilter"),
     bibleSelect: $("#bibleSelect"), bookSelect: $("#bookSelect"), chapterSelect: $("#chapterSelect"),
+    verseSelect: $("#verseSelect"), verseToSelect: $("#verseToSelect"), bibleJoin: $("#bibleJoin"),
+    bibleQuick: $("#bibleQuick"), bibleQuickGo: $("#bibleQuickGo"), bibleQuickHint: $("#bibleQuickHint"),
+    biblePrevChapter: $("#biblePrevChapter"), bibleNextChapter: $("#bibleNextChapter"),
     mediaGrid: $("#mediaGrid"), mediaCount: $("#mediaCount"), mediaDrop: $("#mediaDrop"), uploadBar: $("#uploadBar"),
     slidesGrid: $("#slidesGrid"), slidesTitle: $("#slidesTitle"), slideCounter: $("#slideCounter"),
     currentTitle: $("#currentTitle"), previewFrame: $("#previewFrame"), previewBg: $("#previewBg"),
@@ -48,6 +51,7 @@
     state: null, deck: [], deckTitle: "", selectedSongId: "", currentIndex: -1,
     pickerMode: "background", monitorView: "output", draftMode: "song", visualEditorMode: "", styleTarget: "song.text",
     videoFrameCache: new Map(), toastTimer: null, settingsTimer: null, visualTimer: null,
+    bibleBooks: [], bibleChapter: null, bibleRestored: false,
     ljaStatus: null, ljaBibleStatus: null, screens: [], screenDetails: null, screenEventsBound: false, editingSlide: -1, drag: null,
     appInfo: null, updateInfo: null
   };
@@ -182,6 +186,7 @@
       app.visualEditorMode = "";
       app.draftMode = "bible";
       if (app.deck.length) renderPreview();
+      restoreBibleOnce();
     } else if ((name === "songs" || name === "bible") && app.deck.length) {
       renderPreview();
     }
@@ -653,15 +658,47 @@
     return { type: "xml", id: value };
   }
 
-  async function bibleChanged() {
+  // Guarda onde o usuário está (livro, capítulo, versículo) para continuar no mesmo ponto ao trocar de tradução.
+  function captureBibleContext() {
+    const chapter = app.bibleChapter;
+    if (!chapter || !refs.bookSelect.value) return null;
+    const pos = app.bibleBooks.findIndex(book => String(book.index) === refs.bookSelect.value);
+    return {
+      name: chapter.book, abbr: chapter.bookAbbreviation || "", pos, count: app.bibleBooks.length,
+      chapter: Number(chapter.chapter), verse: Number(refs.verseSelect.value) || 0, to: Number(refs.verseToSelect.value) || 0
+    };
+  }
+
+  function findBookByContext(context) {
+    const key = NexBibleRef.bookKey;
+    let pos = app.bibleBooks.findIndex(book => key(book.name) === key(context.name));
+    if (pos < 0 && context.abbr) pos = app.bibleBooks.findIndex(book => book.abbreviation && key(book.abbreviation) === key(context.abbr));
+    if (pos < 0 && context.pos >= 0 && context.count === app.bibleBooks.length) pos = context.pos;
+    return pos;
+  }
+
+  function resetVerseControls() {
+    app.bibleChapter = null;
+    refs.verseSelect.replaceChildren(new Option("Todos", "")); refs.verseSelect.disabled = true;
+    refs.verseToSelect.replaceChildren(new Option("—", "")); refs.verseToSelect.disabled = true;
+    refs.bibleJoin.disabled = true;
+  }
+
+  async function bibleChanged({ context = null, push = true } = {}) {
+    const previous = context || captureBibleContext();
     refs.bookSelect.disabled = true; refs.chapterSelect.disabled = true;
+    refs.chapterSelect.replaceChildren(new Option("—", ""));
+    if (!refs.bibleSelect.value) {
+      refs.bookSelect.replaceChildren(new Option("—", "")); app.bibleBooks = []; resetVerseControls();
+      return;
+    }
     refs.bookSelect.replaceChildren(new Option("Carregando…", ""));
-    if (!refs.bibleSelect.value) return;
     try {
       const source = selectedBibleSource();
       const books = source.type === "lja"
         ? await api(`/api/louvorja/bible/books?version=${encodeURIComponent(source.id)}`)
         : await api(`/api/bible/${encodeURIComponent(source.id)}/books`);
+      app.bibleBooks = books;
       refs.bookSelect.replaceChildren(new Option("Selecione o livro", ""));
       books.forEach(book => {
         const option = new Option(book.name, String(book.index));
@@ -670,6 +707,12 @@
         refs.bookSelect.add(option);
       });
       refs.bookSelect.disabled = false;
+      if (!previous) { resetVerseControls(); return; }
+      // Troca de tradução: continua no mesmo livro, capítulo e versículo.
+      const pos = findBookByContext(previous);
+      if (pos < 0) { resetVerseControls(); return; }
+      const fits = previous.chapter >= 1 && previous.chapter <= books[pos].chapterCount;
+      await openBibleAt(pos, fits ? previous.chapter : 1, { verse: fits ? previous.verse : 0, to: fits ? previous.to : 0, push });
     } catch (error) { toast("Erro ao abrir a Bíblia", error.message); }
   }
 
@@ -685,36 +728,223 @@
     refs.chapterSelect.disabled = !count;
   }
 
-  function bibleReference(book, chapter, verse, abbreviation = "") {
+  function bibleReference(book, chapter, verse, abbreviation = "", verseEnd = 0) {
+    const span = verseEnd && Number(verseEnd) > Number(verse) ? `${verse}-${verseEnd}` : `${verse}`;
     if (refs.bibleReferenceFormat.value === "compact") {
       const shortBook = abbreviation || String(book).split(/\s+/)[0].slice(0, 2);
-      return `${shortBook} ${chapter}.${verse}`;
+      return `${shortBook} ${chapter}.${span}`;
     }
-    return `${book} ${chapter}:${verse}`;
+    return `${book} ${chapter}:${span}`;
   }
 
-  async function chapterChanged() {
-    if (refs.chapterSelect.value === "") return;
+  function verseNumbers() {
+    return (app.bibleChapter?.verses || []).map(verse => Number(verse.number)).filter(Number.isFinite);
+  }
+
+  // Preenche "Versículo" e "Até" com os versículos do capítulo aberto.
+  function fillVerseSelects(verse = 0, to = 0) {
+    const numbers = verseNumbers();
+    refs.verseSelect.replaceChildren(new Option("Todos", ""));
+    numbers.forEach(number => refs.verseSelect.add(new Option(String(number), String(number))));
+    refs.verseSelect.disabled = !numbers.length;
+    refs.verseSelect.value = numbers.includes(verse) ? String(verse) : "";
+    refreshVerseTo(to);
+  }
+
+  function refreshVerseTo(wanted = null) {
+    const from = Number(refs.verseSelect.value) || 0;
+    const keep = wanted === null ? refs.verseToSelect.value : (wanted ? String(wanted) : "");
+    refs.verseToSelect.replaceChildren(new Option("—", ""));
+    if (from) verseNumbers().filter(number => number > from).forEach(number => refs.verseToSelect.add(new Option(String(number), String(number))));
+    refs.verseToSelect.disabled = !from || refs.verseToSelect.options.length < 2;
+    if ([...refs.verseToSelect.options].some(option => option.value === keep)) refs.verseToSelect.value = keep;
+    refs.bibleJoin.disabled = !(from && Number(refs.verseToSelect.value));
+  }
+
+  function bibleIsRange() {
+    const from = Number(refs.verseSelect.value) || 0;
+    const to = Number(refs.verseToSelect.value) || 0;
+    return Boolean(from && to > from);
+  }
+
+  // Monta os slides: capítulo inteiro (começando no versículo escolhido) ou só o intervalo.
+  function buildBibleDeck() {
+    const chapter = app.bibleChapter;
+    if (!chapter) return;
+    const from = Number(refs.verseSelect.value) || 0;
+    const to = Number(refs.verseToSelect.value) || 0;
+    const make = (text, verse, verseEnd = 0) => ({
+      text,
+      label: refs.bibleShowVersion.checked ? chapter.bible : "",
+      reference: bibleReference(chapter.book, chapter.chapter, verse, chapter.bookAbbreviation, verseEnd),
+      bible: { version: chapter.bible, versionName: chapter.bibleName || chapter.bible, book: chapter.book, bookAbbreviation: chapter.bookAbbreviation || "", chapter: chapter.chapter, verse, verseEnd }
+    });
+    const inRange = bibleIsRange() ? chapter.verses.filter(verse => Number(verse.number) >= from && Number(verse.number) <= to) : [];
+    if (inRange.length) {
+      app.deck = refs.bibleJoin.checked && !refs.bibleJoin.disabled
+        ? [make(inRange.map(verse => `${verse.number} ${verse.text}`).join(" "), from, to)]
+        : inRange.map(verse => make(verse.text, verse.number));
+      app.currentIndex = 0;
+      app.deckTitle = `${chapter.book} ${chapter.chapter}:${from}-${to}`;
+    } else {
+      app.deck = chapter.verses.map(verse => make(verse.text, verse.number));
+      const index = from ? chapter.verses.findIndex(verse => Number(verse.number) === from) : 0;
+      app.currentIndex = app.deck.length ? Math.max(0, index) : -1;
+      app.deckTitle = `${chapter.book} ${chapter.chapter}`;
+    }
+    refs.currentTitle.textContent = app.deckTitle; refs.slidesTitle.textContent = app.deckTitle;
+  }
+
+  function bibleIsOnAir() {
+    return Boolean(app.state.live && !app.state.black && app.state.mode === "bible");
+  }
+
+  // Guarda a última passagem (e a opção de juntar) para reabrir o programa no mesmo ponto.
+  function rememberBible() {
+    const chapter = app.bibleChapter;
+    if (!chapter || !refs.bibleSelect.value) return;
+    const pos = app.bibleBooks.findIndex(book => String(book.index) === refs.bookSelect.value);
+    app.settings.bible = {
+      ...(app.settings.bible || {}),
+      last: {
+        source: refs.bibleSelect.value, name: chapter.book, abbr: chapter.bookAbbreviation || "", pos, count: app.bibleBooks.length,
+        chapter: Number(chapter.chapter), verse: Number(refs.verseSelect.value) || 0, to: Number(refs.verseToSelect.value) || 0
+      }
+    };
+    saveSettings();
+  }
+
+  // Carrega o capítulo escolhido nas caixas. push: se já houver uma Bíblia no ar, atualiza o telão.
+  async function openChapter({ verse = 0, to = 0, push = false, present = false, last = false } = {}) {
+    if (refs.chapterSelect.value === "" || refs.bookSelect.value === "") return false;
     try {
       const source = selectedBibleSource();
       const chapter = source.type === "lja"
         ? await api(`/api/louvorja/bible/chapter?version=${encodeURIComponent(source.id)}&book=${encodeURIComponent(refs.bookSelect.value)}&chapter=${encodeURIComponent(refs.chapterSelect.value)}`)
         : await api(`/api/bible/${encodeURIComponent(source.id)}/chapter?book=${refs.bookSelect.value}&chapter=${refs.chapterSelect.value}`);
       app.selectedSongId = "";
-      app.deckTitle = `${chapter.book} ${chapter.chapter}`;
-      app.deck = chapter.verses.map(verse => ({
-        text: verse.text,
-        label: refs.bibleShowVersion.checked ? chapter.bible : "",
-        reference: bibleReference(chapter.book, chapter.chapter, verse.number, chapter.bookAbbreviation),
-        bible: { version: chapter.bible, versionName: chapter.bibleName || chapter.bible, book: chapter.book, bookAbbreviation: chapter.bookAbbreviation || "", chapter: chapter.chapter, verse: verse.number }
-      }));
-      app.currentIndex = app.deck.length ? 0 : -1;
+      app.bibleChapter = chapter;
+      fillVerseSelects(Number(verse) || 0, Number(to) || 0);
+      buildBibleDeck();
+      if (last && app.deck.length) app.currentIndex = app.deck.length - 1;
       app.visualEditorMode = "";
       app.draftMode = "bible";
       if (!app.state.live) app.monitorView = "draft";
-      refs.currentTitle.textContent = app.deckTitle; refs.slidesTitle.textContent = app.deckTitle;
       renderSongs(); renderSlides(); syncStyleEditor(); renderPreview();
-    } catch (error) { toast("Erro ao abrir capítulo", error.message); }
+      if (app.deck.length && (present || (push && bibleIsOnAir()))) presentSlide(app.currentIndex, true);
+      rememberBible();
+      return true;
+    } catch (error) { toast("Erro ao abrir capítulo", error.message); return false; }
+  }
+
+  // Abre livro (posição na lista) e capítulo (1, 2, 3…) por código.
+  async function openBibleAt(pos, chapterNumber, options = {}) {
+    const book = app.bibleBooks[pos];
+    if (!book) return false;
+    refs.bookSelect.value = String(book.index); bookChanged();
+    refs.chapterSelect.value = String(selectedBibleSource().type === "lja" ? chapterNumber : chapterNumber - 1);
+    return openChapter(options);
+  }
+
+  function chapterChanged() { return openChapter(); }
+
+  function verseChanged() {
+    refreshVerseTo();
+    applyBibleSelection();
+  }
+
+  // Versículo, "até" ou "juntar" mudou: remonta os slides sem recarregar o capítulo.
+  function applyBibleSelection() {
+    if (!app.bibleChapter) return;
+    refs.bibleJoin.disabled = !bibleIsRange();
+    buildBibleDeck();
+    app.selectedSongId = ""; app.draftMode = "bible";
+    if (!app.state.live) app.monitorView = "draft";
+    renderSlides(); renderPreview();
+    if (app.deck.length && bibleIsOnAir()) presentSlide(app.currentIndex, true);
+    rememberBible();
+  }
+
+  // direction: +1 próximo capítulo, -1 anterior (passa para o livro vizinho nas pontas).
+  async function stepBibleChapter(direction, options = {}) {
+    const chapter = app.bibleChapter;
+    let pos = app.bibleBooks.findIndex(book => String(book.index) === refs.bookSelect.value);
+    if (!chapter || pos < 0) return false;
+    let number = Number(chapter.chapter) + direction;
+    if (number < 1) { pos -= 1; if (pos < 0) return false; number = app.bibleBooks[pos].chapterCount; }
+    else if (number > app.bibleBooks[pos].chapterCount) { pos += 1; if (pos >= app.bibleBooks.length) return false; number = 1; }
+    return openBibleAt(pos, number, { push: true, ...options });
+  }
+
+  // Setas e botões: troca de versículo; no fim do capítulo, segue para o próximo (e volta ao anterior no começo).
+  async function stepSlide(direction) {
+    if (app.draftMode === "bible" && app.bibleChapter && !bibleIsRange()) {
+      const next = app.currentIndex + direction;
+      if (next >= app.deck.length && await stepBibleChapter(1, { present: true })) return;
+      if (next < 0 && await stepBibleChapter(-1, { present: true, last: true })) return;
+    }
+    presentSlide(Math.max(0, Math.min(app.deck.length - 1, app.currentIndex + direction)), true);
+  }
+
+  function setQuickHint(text, kind = "") {
+    refs.bibleQuickHint.textContent = text;
+    refs.bibleQuickHint.className = `bible-quick-hint${kind ? ` ${kind}` : ""}`;
+  }
+
+  function describeReference(ref) {
+    const book = app.bibleBooks[ref.pos];
+    const span = ref.verse ? `:${ref.verse}${ref.to ? `-${ref.to}` : ""}` : "";
+    return `${book.name} ${ref.chapter}${span}`;
+  }
+
+  function bibleQuickPreview() {
+    const text = refs.bibleQuick.value.trim();
+    if (!text) return setQuickHint("Digite e aperte Enter. Depois use ← → para trocar de versículo.");
+    if (!app.bibleBooks.length) return setQuickHint("Escolha a tradução (ou aperte Enter para usar a última).");
+    const ref = NexBibleRef.resolve(text, app.bibleBooks);
+    if (!ref) return setQuickHint("Livro não reconhecido…", "error");
+    const book = app.bibleBooks[ref.pos];
+    if (ref.chapter > book.chapterCount) return setQuickHint(`${book.name} tem só ${book.chapterCount} capítulos.`, "error");
+    setQuickHint(`→ ${describeReference(ref)}`, "ok");
+  }
+
+  async function bibleQuickGo() {
+    const text = refs.bibleQuick.value.trim();
+    if (!text) return;
+    if (!refs.bibleSelect.value) {
+      const last = app.settings.bible?.last?.source;
+      const options = [...refs.bibleSelect.options].filter(option => option.value);
+      const choice = options.find(option => option.value === last) || options[0];
+      if (!choice) return setQuickHint("Nenhuma Bíblia disponível. Importe um XML ou conecte o Louvor JA.", "error");
+      refs.bibleSelect.value = choice.value;
+      await bibleChanged();
+    }
+    const ref = NexBibleRef.resolve(text, app.bibleBooks);
+    if (!ref) return setQuickHint(`Não entendi “${text}”. Exemplos: jo 3:16 · sl 23 · 1co 13:4-7`, "error");
+    const book = app.bibleBooks[ref.pos];
+    if (ref.chapter > book.chapterCount) return setQuickHint(`${book.name} tem só ${book.chapterCount} capítulos.`, "error");
+    app.bibleRestored = true; // a referência digitada vale mais que a última passagem guardada
+    switchTab("bible");
+    const opened = await openBibleAt(ref.pos, ref.chapter, { verse: ref.verse, to: ref.to, push: true });
+    if (!opened) return;
+    let note = describeReference(ref);
+    if (ref.verse && Number(refs.verseSelect.value) !== ref.verse) note = `${book.name} ${ref.chapter} (versículo ${ref.verse} não existe nesta tradução)`;
+    else if (ref.to && Number(refs.verseToSelect.value) !== ref.to) note = `${book.name} ${ref.chapter}:${ref.verse} (o intervalo passa do fim do capítulo)`;
+    setQuickHint(`Aberto: ${note}`, "ok");
+    refs.bibleQuick.select();
+    refs.bibleQuick.blur(); // devolve o teclado às setas ← →
+  }
+
+  // Reabre a última passagem usada, sem mexer no telão. Só roda quando a aba Bíblia está aberta,
+  // para não trocar os slides que estão na tela enquanto a pessoa trabalha com músicas.
+  async function restoreBibleOnce() {
+    if (app.bibleRestored || refs.bibleSelect.value) return;
+    if ($(".tab-panel.active")?.dataset.panel !== "bible") return;
+    const last = app.settings.bible?.last;
+    if (!last?.source || ![...refs.bibleSelect.options].some(option => option.value === last.source)) return;
+    app.bibleRestored = true;
+    refs.bibleSelect.value = last.source;
+    await bibleChanged({ context: last, push: false });
   }
 
   function bibleSettingsChanged() {
@@ -723,7 +953,7 @@
       app.deck.forEach(slide => {
         if (!slide.bible) return;
         slide.label = refs.bibleShowVersion.checked ? slide.bible.version : "";
-        slide.reference = bibleReference(slide.bible.book, slide.bible.chapter, slide.bible.verse, slide.bible.bookAbbreviation);
+        slide.reference = bibleReference(slide.bible.book, slide.bible.chapter, slide.bible.verse, slide.bible.bookAbbreviation, slide.bible.verseEnd);
       });
       renderSlides(); renderPreview();
       if (app.state.live && app.state.mode === "bible") pushState(buildLyricsState(true));
@@ -1013,7 +1243,7 @@
     clearTimeout(app.settingsTimer);
     app.settingsTimer = setTimeout(() => {
       app.settings.theme = app.state.theme; app.settings.styles = app.state.styles; app.settings.clock = clockDraft();
-      app.settings.bible = { showVersion: refs.bibleShowVersion.checked, referenceFormat: refs.bibleReferenceFormat.value };
+      app.settings.bible = { ...(app.settings.bible || {}), showVersion: refs.bibleShowVersion.checked, referenceFormat: refs.bibleReferenceFormat.value };
       app.settings.defaultBackground = app.state.background; app.settings.defaultOverlay = app.state.overlay;
       api("/api/settings", { method: "POST", body: JSON.stringify(app.settings) }).catch(() => {});
     }, 350);
@@ -1070,6 +1300,7 @@
         refs.ljaBibleQuickStatus.textContent = bibleError.message;
       }
       renderBibles();
+      restoreBibleOnce();
     } catch (error) {
       refs.ljaStatusDot.className = "status-dot error"; refs.ljaStatusTitle.textContent = "Falha na verificação"; refs.ljaStatusDetail.textContent = error.message;
       refs.ljaQuickStatus.textContent = "Não foi possível verificar";
@@ -1144,7 +1375,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.4.2"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.4.3"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }
@@ -1317,7 +1548,13 @@
     ["dragenter", "dragover"].forEach(type => refs.mediaDrop.addEventListener(type, event => { event.preventDefault(); refs.mediaDrop.classList.add("drag"); }));
     ["dragleave", "drop"].forEach(type => refs.mediaDrop.addEventListener(type, event => { event.preventDefault(); refs.mediaDrop.classList.remove("drag"); }));
     refs.mediaDrop.addEventListener("drop", event => handleMediaFiles(event.dataTransfer.files));
-    refs.bibleSelect.addEventListener("change", bibleChanged); refs.bookSelect.addEventListener("change", bookChanged); refs.chapterSelect.addEventListener("change", chapterChanged);
+    refs.bibleSelect.addEventListener("change", () => bibleChanged()); refs.bookSelect.addEventListener("change", bookChanged); refs.chapterSelect.addEventListener("change", chapterChanged);
+    refs.verseSelect.addEventListener("change", verseChanged); refs.verseToSelect.addEventListener("change", applyBibleSelection); refs.bibleJoin.addEventListener("change", applyBibleSelection);
+    refs.bibleQuick.addEventListener("input", bibleQuickPreview);
+    refs.bibleQuick.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); bibleQuickGo(); } });
+    refs.bibleQuickGo.addEventListener("click", bibleQuickGo);
+    refs.biblePrevChapter.addEventListener("click", () => stepBibleChapter(-1));
+    refs.bibleNextChapter.addEventListener("click", () => stepBibleChapter(1));
     refs.bibleShowVersion.addEventListener("change", bibleSettingsChanged); refs.bibleReferenceFormat.addEventListener("change", bibleSettingsChanged);
     refs.songShowLabels.addEventListener("change", songSettingsChanged); refs.songShowCredits.addEventListener("change", songSettingsChanged); refs.songCreditsFormat.addEventListener("change", songSettingsChanged);
     $("#editBibleVisual").addEventListener("click", () => focusVisualEditor("bible", "bible.text"));
@@ -1383,8 +1620,8 @@
     refs.goLive.addEventListener("click", () => { if (app.draftMode === "clock") presentClock(); else if (app.deck.length) { app.monitorView = "output"; pushState(buildLyricsState(true)); } else toast("Escolha o que apresentar", "Selecione um slide ou abra o relógio."); });
     refs.blackout.addEventListener("click", () => { app.monitorView = "output"; pushState({ ...app.state, black: !app.state.black }); });
     $("#clearOutput").addEventListener("click", () => { if (app.settings.ui?.confirmClear && !confirm("Limpar a saída do telão?")) return; app.monitorView = "output"; pushState({ ...app.state, live: false, black: false }); });
-    $("#previousSlide").addEventListener("click", () => presentSlide(Math.max(0, app.currentIndex - 1), true));
-    $("#nextSlide").addEventListener("click", () => presentSlide(Math.min(app.deck.length - 1, app.currentIndex + 1), true));
+    $("#previousSlide").addEventListener("click", () => stepSlide(-1));
+    $("#nextSlide").addEventListener("click", () => stepSlide(1));
     $("#presentClock").addEventListener("click", presentClock);
     [refs.clock24, refs.clockSeconds, refs.clockShowDate, refs.clockDateFormat].forEach(control => control.addEventListener("change", clockDraftChanged)); refs.clockLabel.addEventListener("input", clockDraftChanged);
 
@@ -1394,8 +1631,12 @@
 
     addEventListener("keydown", event => {
       if (/INPUT|SELECT|TEXTAREA/.test(event.target.tagName) || refs.onlineDialog.open || refs.ljaDialog.open || refs.slideDialog.open) return;
-      if (event.key === "ArrowRight") { event.preventDefault(); presentSlide(Math.min(app.deck.length - 1, app.currentIndex + 1), true); }
-      if (event.key === "ArrowLeft") { event.preventDefault(); presentSlide(Math.max(0, app.currentIndex - 1), true); }
+      if (event.key === "/" && !event.ctrlKey && !event.altKey && !event.metaKey) { event.preventDefault(); switchTab("bible"); refs.bibleQuick.focus(); refs.bibleQuick.select(); return; }
+      if ((event.key === "ArrowRight" || event.key === "ArrowLeft") && event.shiftKey && app.draftMode === "bible" && app.bibleChapter) {
+        event.preventDefault(); stepBibleChapter(event.key === "ArrowRight" ? 1 : -1, { present: true }); return;
+      }
+      if (event.key === "ArrowRight") { event.preventDefault(); stepSlide(1); }
+      if (event.key === "ArrowLeft") { event.preventDefault(); stepSlide(-1); }
       if (event.key === "Enter") { event.preventDefault(); if (app.draftMode === "clock") presentClock(); else if (app.deck.length) { app.monitorView = "output"; pushState(buildLyricsState(true)); } }
       if (event.key === "Escape") { app.monitorView = "output"; pushState({ ...app.state, live: false, black: false }); }
       if (event.key.toLowerCase() === "b") { app.monitorView = "output"; pushState({ ...app.state, black: !app.state.black }); }

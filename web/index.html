@@ -64,9 +64,23 @@
       <section class="tab-panel" data-panel="bible">
         <div class="panel-heading"><div><span class="eyebrow">XML + LOUVOR JA</span><h1>Bíblia</h1></div><button class="icon-button" id="importBible" title="Importar XML"><svg><use href="#i-upload"/></svg></button></div>
         <button class="online-search lja-search bible-lja-status" id="refreshLjaBibles"><span class="source-badge">LJA</span><span><b>Bíblias do Louvor JA</b><small id="ljaBibleQuickStatus">Verificando versões locais…</small></span><svg><use href="#i-refresh"/></svg></button>
+        <div class="field bible-quick">
+          <span>Referência rápida <em>(tecla / para chegar aqui)</em></span>
+          <div class="bible-quick-row"><input id="bibleQuick" type="text" placeholder="jo 3:16 · sl 23 · 1co 13:4-7" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="button soft" id="bibleQuickGo" type="button">Ir</button></div>
+          <small id="bibleQuickHint" class="bible-quick-hint">Digite e aperte Enter. Depois use ← → para trocar de versículo.</small>
+        </div>
         <label class="field"><span>Tradução</span><select id="bibleSelect"><option value="">Carregando traduções…</option></select></label>
         <label class="field"><span>Livro</span><select id="bookSelect" disabled><option>—</option></select></label>
-        <label class="field"><span>Capítulo</span><select id="chapterSelect" disabled><option>—</option></select></label>
+        <div class="bible-pair">
+          <label class="field"><span>Capítulo</span><select id="chapterSelect" disabled><option>—</option></select></label>
+          <label class="field"><span>Versículo</span><select id="verseSelect" disabled><option value="">Todos</option></select></label>
+          <label class="field"><span>Até</span><select id="verseToSelect" disabled><option value="">—</option></select></label>
+        </div>
+        <label class="check-row"><input type="checkbox" id="bibleJoin" disabled><span>Juntar o intervalo num slide só</span></label>
+        <div class="bible-chapter-nav">
+          <button class="button soft" id="biblePrevChapter" type="button" title="Capítulo anterior (Shift + ←)">‹ Capítulo</button>
+          <button class="button soft" id="bibleNextChapter" type="button" title="Próximo capítulo (Shift + →)">Capítulo ›</button>
+        </div>
         <label class="check-row"><input type="checkbox" id="bibleShowVersion" checked><span>Mostrar nome da versão</span></label>
         <label class="field"><span>Formato da referência</span><select id="bibleReferenceFormat"><option value="full">João 3:16</option><option value="compact">Jo 3.16</option></select></label>
         <button class="button soft full edit-visual" id="editBibleVisual"><svg><use href="#i-edit"/></svg> Editar visual da Bíblia</button>
@@ -119,7 +133,7 @@
 
         <div class="settings-section-label">Sobre e atualizações</div>
         <div class="settings-card about-card">
-          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.4.2</span></b><small>por Natan Gabriel</small></div></div>
+          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.4.3</span></b><small>por Natan Gabriel</small></div></div>
           <dl class="about-details">
             <div><dt>Sistema</dt><dd id="aboutSystem">Carregando…</dd></div>
             <div><dt>Controlador</dt><dd><code id="aboutController">—</code></dd></div>
@@ -244,6 +258,7 @@
   </dialog>
 
   <div class="toast" id="toast"><span>✓</span><div><b id="toastTitle">Pronto</b><small id="toastMessage"></small></div></div>
+  <script src="/bible-ref.js" defer></script>
   <script src="/app.js" defer></script>
 </body>
 </html>

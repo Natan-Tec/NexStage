@@ -94,6 +94,17 @@ h2 { font-size: 17px; }
 .field { display: grid; gap: 6px; margin: 13px 0; color: #8696aa; font-size: 10.5px; font-weight: 700; }
 .field select, .field input, .control-group select { width: 100%; height: 40px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line); background: #0d141e; color: #d9e5f3; outline: 0; font-size: 11px; }
 .field select:focus, .field input:focus, .control-group select:focus { border-color: #177edc; }
+.bible-quick em { font-style: normal; font-weight: 400; color: #5f7287; }
+.bible-quick-row { display: flex; gap: 7px; }
+.bible-quick-row input { flex: 1; min-width: 0; }
+.bible-quick-row .button { width: 54px; height: 40px; padding: 0; }
+.bible-quick-hint { min-height: 14px; font-size: 9.5px; font-weight: 500; color: #6f86a0; line-height: 1.4; }
+.bible-quick-hint.error { color: #ff9a8a; }
+.bible-quick-hint.ok { color: #7fd0a0; }
+.bible-pair { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 8px; }
+.bible-pair .field { margin: 13px 0 6px; min-width: 0; }
+.bible-chapter-nav { display: flex; gap: 7px; margin: 6px 0 8px; }
+.bible-chapter-nav .button { flex: 1; height: 36px; }
 .bible-hint { margin-top: 20px; padding: 13px; border: 1px solid #20324a; background: #111d2c; border-radius: 10px; display: flex; gap: 10px; color: #7396ba; }
 .bible-hint svg { flex: 0 0 19px; }
 .bible-hint b { color: #b5cce4; font-size: 10.5px; }

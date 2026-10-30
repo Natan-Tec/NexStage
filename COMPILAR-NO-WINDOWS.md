@@ -1,7 +1,37 @@
-# Como gerar o instalador do NexStage 0.4.2
+# Como gerar o instalador do NexStage 0.4.3
 
 Você só precisa fazer isso no computador usado para criar a release. Quem
 instalar o NexStage não precisará de Python, PyInstaller ou Inno Setup.
+
+## Jeito automático: o GitHub compila e publica
+
+Não precisa instalar nada no computador. O arquivo `.github/workflows/release.yml`
+faz tudo no Windows do próprio GitHub: roda os testes, gera o `NexStage.exe`,
+cria o `NexStage-Setup.exe` e publica a release com esse nome exato.
+
+Para publicar uma versão nova:
+
+1. Confira se `APP_VERSION` em `server.py` e em `windows_launcher.py` está na versão
+   desejada e se existe o arquivo `CHANGELOG-<versão>.md` (ele vira o texto da release).
+2. Crie a tag da versão e envie para o GitHub, por exemplo:
+
+```text
+git tag v0.4.3
+git push origin v0.4.3
+```
+
+   (ou, no site do GitHub: **Releases > Draft a new release**, crie a tag `v0.4.3` e publique).
+3. Acompanhe em **Actions**. Em uns 5 a 10 minutos a release aparece em **Releases**
+   com `NexStage-Setup.exe` anexado.
+
+Se a tag não bater com a versão do código (por exemplo `v0.4.4` com `APP_VERSION` 0.4.3),
+o fluxo para antes de compilar. Para só testar a compilação sem criar release, use
+**Actions > Compilar e publicar o instalador > Run workflow**: o instalador fica em
+*Artifacts*, na página da execução.
+
+---
+
+## Jeito manual: compilar no seu computador
 
 ## 1. Instale as duas ferramentas
 
@@ -46,7 +76,7 @@ mas isso não substitui uma assinatura digital.
 
 ## 4. Publique no GitHub
 
-Crie a release com a tag `v0.4.2` e anexe o instalador usando exatamente este
+Crie a release com a tag `v0.4.3` e anexe o instalador usando exatamente este
 nome:
 
 ```text
