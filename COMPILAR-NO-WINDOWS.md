@@ -13,21 +13,17 @@ Para publicar uma versão nova:
 
 1. Confira se `APP_VERSION` em `server.py` e em `windows_launcher.py` está na versão
    desejada e se existe o arquivo `CHANGELOG-<versão>.md` (ele vira o texto da release).
-2. Crie a tag da versão e envie para o GitHub, por exemplo:
+2. No GitHub, abra **Actions > Compilar e publicar o instalador > Run workflow**,
+   marque **Publicar a release no GitHub** e clique em **Run workflow**.
+   O fluxo cria sozinho a tag `v<versão>` (por exemplo `v0.4.3`) e a release.
+3. Em uns 5 a 10 minutos a release aparece em **Releases** com `NexStage-Setup.exe`
+   anexado. Se der erro, o motivo aparece na própria execução em **Actions**.
 
-```text
-git tag v0.4.3
-git push origin v0.4.3
-```
+Alternativa: enviar a tag pelo Git (`git tag v0.4.3` e `git push origin v0.4.3`) faz o
+mesmo. Se a tag não bater com a versão do código, o fluxo para antes de compilar.
 
-   (ou, no site do GitHub: **Releases > Draft a new release**, crie a tag `v0.4.3` e publique).
-3. Acompanhe em **Actions**. Em uns 5 a 10 minutos a release aparece em **Releases**
-   com `NexStage-Setup.exe` anexado.
-
-Se a tag não bater com a versão do código (por exemplo `v0.4.4` com `APP_VERSION` 0.4.3),
-o fluxo para antes de compilar. Para só testar a compilação sem criar release, use
-**Actions > Compilar e publicar o instalador > Run workflow**: o instalador fica em
-*Artifacts*, na página da execução.
+Rodar **sem** marcar a opção apenas testa a compilação: o instalador fica em
+*Artifacts*, na página da execução, e nenhuma release é criada.
 
 ---
 
