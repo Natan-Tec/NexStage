@@ -175,20 +175,27 @@ jobs:
           chmod +x dist/NexStage/NexStage dist/NexStage/instalar.sh dist/NexStage/desinstalar.sh
 
       - name: Testar o programa compilado (abre, responde e encerra)
+        timeout-minutes: 4
         run: |
           export NEXSTAGE_HOME="$RUNNER_TEMP/nexstage-teste"
+          APP="dist/NexStage/NexStage"
+          LOG="$RUNNER_TEMP/nexstage-teste.log"
+          fail() { echo "::error::$1 | $(tail -c 900 "$LOG" 2>/dev/null | tr '\n' ' ')"; exit 1; }
           echo "--- componentes da bandeja"
-          xvfb-run -a dist/NexStage/NexStage --check-tray
+          xvfb-run -a "$APP" --check-tray > "$LOG" 2>&1 || fail "componentes da bandeja ausentes"
+          cat "$LOG"
           echo "--- iniciar"
-          xvfb-run -a dist/NexStage/NexStage --no-browser &
-          for i in $(seq 1 40); do
+          xvfb-run -a "$APP" --no-browser > "$LOG" 2>&1 &
+          for i in $(seq 1 80); do
             [ -f "$NEXSTAGE_HOME/data/runtime.json" ] && break
             sleep 0.5
           done
+          [ -f "$NEXSTAGE_HOME/data/runtime.json" ] || fail "o programa não iniciou a tempo"
           PORT=$(python -c "import json,os;print(json.load(open(os.environ['NEXSTAGE_HOME']+'/data/runtime.json'))['port'])")
-          curl -fsS "http://127.0.0.1:$PORT/api/bootstrap" | python -c "import sys,json; d=json.load(sys.stdin); print('app:', d['app']['name'], d['app']['version']); assert d['app']['version']=='${{ needs.prepare.outputs.version }}'"
-          curl -fsS -o /dev/null "http://127.0.0.1:$PORT/bible-ref.js"
-          dist/NexStage/NexStage --stop
+          curl -fsS "http://127.0.0.1:$PORT/api/bootstrap" > "$RUNNER_TEMP/boot.json" || fail "o servidor não respondeu"
+          python -c "import sys,json; d=json.load(open(sys.argv[1])); print('app:', d['app']['name'], d['app']['version']); assert d['app']['version']=='${{ needs.prepare.outputs.version }}'" "$RUNNER_TEMP/boot.json" || fail "versão errada no programa compilado"
+          curl -fsS -o /dev/null "http://127.0.0.1:$PORT/bible-ref.js" || fail "arquivos da interface ausentes"
+          xvfb-run -a "$APP" --stop || fail "não encerrou"
           wait
 
       - name: Compactar
@@ -258,21 +265,27 @@ jobs:
           codesign --verify --deep dist/NexStage.app && echo "assinatura ad hoc ok"
 
       - name: Testar o aplicativo compilado (abre, responde e encerra)
+        timeout-minutes: 4
         run: |
           export NEXSTAGE_HOME="$RUNNER_TEMP/nexstage-teste"
           APP="dist/NexStage.app/Contents/MacOS/NexStage"
+          LOG="$RUNNER_TEMP/nexstage-teste.log"
+          fail() { echo "::error::$1 | $(tail -c 900 "$LOG" 2>/dev/null | tr '\n' ' ')"; exit 1; }
           echo "--- componentes da barra de menus"
-          "$APP" --check-tray
+          "$APP" --check-tray > "$LOG" 2>&1 || fail "componentes da bandeja ausentes"
+          cat "$LOG"
           echo "--- iniciar"
-          "$APP" --no-browser &
-          for i in $(seq 1 60); do
+          "$APP" --no-browser > "$LOG" 2>&1 &
+          for i in $(seq 1 240); do
             [ -f "$NEXSTAGE_HOME/data/runtime.json" ] && break
             sleep 0.5
           done
+          [ -f "$NEXSTAGE_HOME/data/runtime.json" ] || fail "o programa não iniciou a tempo"
           PORT=$(python -c "import json,os;print(json.load(open(os.environ['NEXSTAGE_HOME']+'/data/runtime.json'))['port'])")
-          curl -fsS "http://127.0.0.1:$PORT/api/bootstrap" | python -c "import sys,json; d=json.load(sys.stdin); print('app:', d['app']['name'], d['app']['version']); assert d['app']['version']=='${{ needs.prepare.outputs.version }}'"
-          curl -fsS -o /dev/null "http://127.0.0.1:$PORT/bible-ref.js"
-          "$APP" --stop
+          curl -fsS "http://127.0.0.1:$PORT/api/bootstrap" > "$RUNNER_TEMP/boot.json" || fail "o servidor não respondeu"
+          python -c "import sys,json; d=json.load(open(sys.argv[1])); print('app:', d['app']['name'], d['app']['version']); assert d['app']['version']=='${{ needs.prepare.outputs.version }}'" "$RUNNER_TEMP/boot.json" || fail "versão errada no programa compilado"
+          curl -fsS -o /dev/null "http://127.0.0.1:$PORT/bible-ref.js" || fail "arquivos da interface ausentes"
+          "$APP" --stop || fail "não encerrou"
           wait
 
       - name: Criar o NexStage-macOS-${{ matrix.arch }}.dmg
