@@ -1,9 +1,13 @@
 name: Compilar e publicar o instalador
 
-# Envie uma tag como v0.4.3 para compilar e publicar a release com NexStage-Setup.exe.
+# Envie uma tag como v0.4.5 para compilar tudo e publicar a release com:
+#   NexStage-Setup.exe              (Windows)
+#   NexStage-Linux-x64.tar.gz       (Linux 64 bits)
+#   NexStage-macOS-AppleSilicon.dmg (Mac com chip M1/M2/M3/M4)
+#   NexStage-macOS-Intel.dmg        (Mac com processador Intel)
 # Também dá para rodar manualmente (Actions > Run workflow):
-#  - sem marcar "publicar": só testa a compilação; o instalador fica em "Artifacts".
-#  - marcando "publicar": cria a tag vX.Y.Z (a versão do código) e a release com o instalador.
+#  - sem marcar "publicar": só testa a compilação; os arquivos ficam em "Artifacts".
+#  - marcando "publicar": cria a tag vX.Y.Z (a versão do código) e a release com os arquivos.
 on:
   push:
     tags:
@@ -19,8 +23,10 @@ permissions:
   contents: write
 
 jobs:
-  windows-installer:
-    runs-on: windows-latest
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - name: Baixar o código
         uses: actions/checkout@v4
@@ -32,21 +38,32 @@ jobs:
 
       - name: Ler a versão do NexStage
         id: ver
-        shell: bash
         run: |
           VERSION=$(python -c "import server; print(server.APP_VERSION)")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "NexStage $VERSION"
+          test -f "CHANGELOG-$VERSION.md" || { echo "Falta o arquivo CHANGELOG-$VERSION.md"; exit 1; }
 
       - name: Conferir se a tag bate com a versão do código
         if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
         run: |
           if [ "${GITHUB_REF_NAME}" != "v${{ steps.ver.outputs.version }}" ]; then
             echo "A tag ${GITHUB_REF_NAME} não bate com a versão do código (v${{ steps.ver.outputs.version }})."
             echo "Atualize APP_VERSION em server.py e windows_launcher.py, ou use a tag certa."
             exit 1
           fi
+
+  windows-installer:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar o Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Instalar as ferramentas de compilação
         run: python -m pip install --disable-pip-version-check -r requirements-build.txt
@@ -71,7 +88,7 @@ jobs:
             --hidden-import pystray._win32 \
             windows_launcher.py
           cp README.md LICENSE.txt dist/NexStage/
-          cp "CHANGELOG-${{ steps.ver.outputs.version }}.md" dist/NexStage/
+          cp "CHANGELOG-${{ needs.prepare.outputs.version }}.md" dist/NexStage/
 
       - name: Instalar o Inno Setup
         shell: pwsh
@@ -106,13 +123,201 @@ jobs:
           path: release/NexStage-Setup.exe
           if-no-files-found: error
 
+  linux:
+    needs: prepare
+    # Ubuntu 22.04 (glibc mais antiga) roda também em distribuições mais velhas.
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar o Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar as ferramentas de compilação
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements-build.txt
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - name: Rodar os testes
+        run: python -m unittest discover -s tests -v
+
+      - name: Gerar o programa para Linux
+        run: |
+          python -m PyInstaller \
+            --noconfirm \
+            --clean \
+            --onedir \
+            --noupx \
+            --name NexStage \
+            --add-data "web:web" \
+            --hidden-import pystray._xorg \
+            --collect-submodules Xlib \
+            desktop_launcher.py
+
+      - name: Montar a pasta de distribuição
+        run: |
+          python - <<'PY'
+          from PIL import Image
+          image = Image.open("web/favicon.ico")
+          try:
+              image.size = max(image.ico.sizes())
+          except Exception:
+              pass
+          image.convert("RGBA").save("dist/NexStage/NexStage.png")
+          PY
+          cp packaging/linux/instalar.sh packaging/linux/desinstalar.sh packaging/linux/LEIA-ME.txt dist/NexStage/
+          cp README.md LICENSE.txt dist/NexStage/
+          cp "CHANGELOG-${{ needs.prepare.outputs.version }}.md" dist/NexStage/
+          chmod +x dist/NexStage/NexStage dist/NexStage/instalar.sh dist/NexStage/desinstalar.sh
+
+      - name: Testar o programa compilado (abre, responde e encerra)
+        run: |
+          export NEXSTAGE_HOME="$RUNNER_TEMP/nexstage-teste"
+          echo "--- componentes da bandeja"
+          xvfb-run -a dist/NexStage/NexStage --check-tray
+          echo "--- iniciar"
+          xvfb-run -a dist/NexStage/NexStage --no-browser &
+          for i in $(seq 1 40); do
+            [ -f "$NEXSTAGE_HOME/data/runtime.json" ] && break
+            sleep 0.5
+          done
+          PORT=$(python -c "import json,os;print(json.load(open(os.environ['NEXSTAGE_HOME']+'/data/runtime.json'))['port'])")
+          curl -fsS "http://127.0.0.1:$PORT/api/bootstrap" | python -c "import sys,json; d=json.load(sys.stdin); print('app:', d['app']['name'], d['app']['version']); assert d['app']['version']=='${{ needs.prepare.outputs.version }}'"
+          curl -fsS -o /dev/null "http://127.0.0.1:$PORT/bible-ref.js"
+          dist/NexStage/NexStage --stop
+          wait
+
+      - name: Compactar
+        run: |
+          mkdir -p release
+          tar -czf release/NexStage-Linux-x64.tar.gz -C dist NexStage
+          ls -l release
+
+      - name: Guardar o pacote (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexStage-Linux
+          path: release/NexStage-Linux-x64.tar.gz
+          if-no-files-found: error
+
+  macos:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: AppleSilicon
+          - runner: macos-15-intel
+            arch: Intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar o Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar as ferramentas de compilação
+        run: python -m pip install --disable-pip-version-check -r requirements-build.txt
+
+      - name: Rodar os testes
+        run: python -m unittest discover -s tests -v
+
+      - name: Gerar o NexStage.app
+        run: |
+          python -m PyInstaller \
+            --noconfirm \
+            --clean \
+            --onedir \
+            --windowed \
+            --noupx \
+            --name NexStage \
+            --icon "web/favicon.ico" \
+            --osx-bundle-identifier br.com.natangabriel.nexstage \
+            --add-data "web:web" \
+            --hidden-import pystray._darwin \
+            --hidden-import objc \
+            --hidden-import AppKit \
+            --hidden-import Foundation \
+            --hidden-import Quartz \
+            desktop_launcher.py
+          PLIST="dist/NexStage.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ needs.prepare.outputs.version }}" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${{ needs.prepare.outputs.version }}" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ needs.prepare.outputs.version }}" "$PLIST" \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${{ needs.prepare.outputs.version }}" "$PLIST"
+          # assinatura "ad hoc" (sem conta paga da Apple) para o app abrir em chips Apple Silicon
+          codesign --force --deep --sign - dist/NexStage.app
+          codesign --verify --deep dist/NexStage.app && echo "assinatura ad hoc ok"
+
+      - name: Testar o aplicativo compilado (abre, responde e encerra)
+        run: |
+          export NEXSTAGE_HOME="$RUNNER_TEMP/nexstage-teste"
+          APP="dist/NexStage.app/Contents/MacOS/NexStage"
+          echo "--- componentes da barra de menus"
+          "$APP" --check-tray
+          echo "--- iniciar"
+          "$APP" --no-browser &
+          for i in $(seq 1 60); do
+            [ -f "$NEXSTAGE_HOME/data/runtime.json" ] && break
+            sleep 0.5
+          done
+          PORT=$(python -c "import json,os;print(json.load(open(os.environ['NEXSTAGE_HOME']+'/data/runtime.json'))['port'])")
+          curl -fsS "http://127.0.0.1:$PORT/api/bootstrap" | python -c "import sys,json; d=json.load(sys.stdin); print('app:', d['app']['name'], d['app']['version']); assert d['app']['version']=='${{ needs.prepare.outputs.version }}'"
+          curl -fsS -o /dev/null "http://127.0.0.1:$PORT/bible-ref.js"
+          "$APP" --stop
+          wait
+
+      - name: Criar o NexStage-macOS-${{ matrix.arch }}.dmg
+        run: |
+          mkdir -p release stage
+          cp -R dist/NexStage.app stage/
+          ln -s /Applications stage/Applications
+          cp packaging/macos/LEIA-ME.txt stage/
+          hdiutil create -volname "NexStage" -srcfolder stage -ov -format UDZO "release/NexStage-macOS-${{ matrix.arch }}.dmg"
+          ls -l release
+
+      - name: Guardar o pacote (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexStage-macOS-${{ matrix.arch }}
+          path: release/NexStage-macOS-${{ matrix.arch }}.dmg
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, windows-installer, linux, macos]
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publicar
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Baixar os arquivos compilados
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Conferir os arquivos
+        run: ls -l release
+
       - name: Publicar a release no GitHub
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.publicar
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.ver.outputs.version }}
+          tag_name: v${{ needs.prepare.outputs.version }}
           target_commitish: ${{ github.sha }}
-          name: NexStage ${{ steps.ver.outputs.version }}
-          body_path: CHANGELOG-${{ steps.ver.outputs.version }}.md
-          files: release/NexStage-Setup.exe
+          name: NexStage ${{ needs.prepare.outputs.version }}
+          body_path: CHANGELOG-${{ needs.prepare.outputs.version }}.md
+          files: |
+            release/NexStage-Setup.exe
+            release/NexStage-Linux-x64.tar.gz
+            release/NexStage-macOS-AppleSilicon.dmg
+            release/NexStage-macOS-Intel.dmg
           fail_on_unmatched_files: true

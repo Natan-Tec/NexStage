@@ -1,4 +1,4 @@
-# Como gerar o instalador do NexStage 0.4.4
+# Como gerar o instalador do NexStage 0.4.5
 
 Você só precisa fazer isso no computador usado para criar a release. Quem
 instalar o NexStage não precisará de Python, PyInstaller ou Inno Setup.
@@ -6,8 +6,14 @@ instalar o NexStage não precisará de Python, PyInstaller ou Inno Setup.
 ## Jeito automático: o GitHub compila e publica
 
 Não precisa instalar nada no computador. O arquivo `.github/workflows/release.yml`
-faz tudo no Windows do próprio GitHub: roda os testes, gera o `NexStage.exe`,
-cria o `NexStage-Setup.exe` e publica a release com esse nome exato.
+faz tudo nos computadores do próprio GitHub: roda os testes, gera os programas para
+Windows, Linux e macOS, **testa cada um** (abre, responde e encerra) e publica a release
+com estes arquivos:
+
+- `NexStage-Setup.exe` (Windows)
+- `NexStage-Linux-x64.tar.gz` (Linux 64 bits)
+- `NexStage-macOS-AppleSilicon.dmg` (Macs com chip M1 ou mais novo)
+- `NexStage-macOS-Intel.dmg` (Macs com processador Intel)
 
 Para publicar uma versão nova:
 
@@ -15,11 +21,11 @@ Para publicar uma versão nova:
    desejada e se existe o arquivo `CHANGELOG-<versão>.md` (ele vira o texto da release).
 2. No GitHub, abra **Actions > Compilar e publicar o instalador > Run workflow**,
    marque **Publicar a release no GitHub** e clique em **Run workflow**.
-   O fluxo cria sozinho a tag `v<versão>` (por exemplo `v0.4.4`) e a release.
-3. Em uns 5 a 10 minutos a release aparece em **Releases** com `NexStage-Setup.exe`
-   anexado. Se der erro, o motivo aparece na própria execução em **Actions**.
+   O fluxo cria sozinho a tag `v<versão>` (por exemplo `v0.4.5`) e a release.
+3. Em uns 10 a 15 minutos a release aparece em **Releases** com os quatro arquivos
+   anexados. Se um deles falhar, nada é publicado pela metade. Se der erro, o motivo aparece na própria execução em **Actions**.
 
-Alternativa: enviar a tag pelo Git (`git tag v0.4.4` e `git push origin v0.4.4`) faz o
+Alternativa: enviar a tag pelo Git (`git tag v0.4.5` e `git push origin v0.4.5`) faz o
 mesmo. Se a tag não bater com a versão do código, o fluxo para antes de compilar.
 
 Rodar **sem** marcar a opção apenas testa a compilação: o instalador fica em
@@ -72,7 +78,7 @@ mas isso não substitui uma assinatura digital.
 
 ## 4. Publique no GitHub
 
-Crie a release com a tag `v0.4.4` e anexe o instalador usando exatamente este
+Crie a release com a tag `v0.4.5` e anexe o instalador usando exatamente este
 nome:
 
 ```text

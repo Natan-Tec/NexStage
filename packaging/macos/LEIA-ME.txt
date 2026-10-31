@@ -1,0 +1,12 @@
+NexStage para macOS
+
+1. Arraste o NexStage para a pasta Aplicativos.
+2. Na primeira vez, clique com o botão direito no NexStage > Abrir > Abrir.
+   (O app ainda não tem assinatura paga da Apple, por isso o macOS pede essa confirmação.)
+   Se aparecer "o app está danificado", rode no Terminal uma única vez:
+       xattr -dr com.apple.quarantine /Applications/NexStage.app
+3. O NexStage fica no ícone da barra de menus (topo da tela). Clique nele para abrir
+   o controlador, o telão, copiar o endereço do OBS ou Encerrar.
+
+Dados (músicas, Bíblias, fontes, configurações): ~/Library/Application Support/NexStage
+Fontes cujo nome começa com CMG são importadas do sistema automaticamente.

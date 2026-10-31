@@ -1,4 +1,4 @@
-# NexStage 0.4.4
+# NexStage 0.4.5
 
 Apresentador local para igrejas, criado para letras, Bíblia em XML ou Louvor JA, vídeos de
 fundo e integração simples com OBS. A interface é HTML/CSS/JavaScript, mas o
@@ -27,28 +27,44 @@ um segundo clique no atalho apenas reabre o controlador atual.
 
 ### macOS
 
-1. Tenha o Python 3 instalado.
-2. Clique com o botão direito em `start.command` e escolha **Abrir**.
-3. Se necessário, no Terminal execute `chmod +x start.command` uma única vez.
+Baixe o arquivo `.dmg` na página de releases: **NexStage-macOS-AppleSilicon.dmg**
+para Macs com chip M1/M2/M3/M4 ou **NexStage-macOS-Intel.dmg** para Macs com
+processador Intel. Arraste o NexStage para a pasta Aplicativos.
+
+Na primeira vez, clique com o botão direito no NexStage e escolha **Abrir**, pois o
+app ainda não tem assinatura paga da Apple. Se o macOS disser que o app está
+danificado, rode uma única vez no Terminal:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/NexStage.app
+```
+
+O NexStage abre sem terminal e fica no ícone da barra de menus, com as mesmas opções
+do Windows (controlador, telão, endereço do OBS, pasta dos dados e **Encerrar**).
+Os dados ficam em `~/Library/Application Support/NexStage`.
 
 ### Linux
 
-Execute:
+Baixe `NexStage-Linux-x64.tar.gz` na página de releases, extraia e, dentro da pasta
+`NexStage`, rode `sh instalar.sh`. Ele instala na sua conta (sem sudo) e cria o
+atalho no menu de aplicativos. Também dá para rodar `./NexStage` direto da pasta.
+
+Sem terminal: o NexStage fica no ícone da bandeja quando o ambiente tem bandeja. Se
+não tiver, ele continua em segundo plano; encerre com `nexstage --stop`. Os dados
+ficam em `~/.local/share/NexStage`.
+
+### Executar pelo código-fonte (qualquer sistema)
+
+Em macOS e Linux, com Python 3 instalado, dá para rodar sem compilar:
 
 ```bash
 chmod +x start.sh
-./start.sh
-```
-
-Também funciona em qualquer sistema com:
-
-```bash
-python3 run.py
+./start.sh        # ou: python3 run.py   (no macOS: start.command)
 ```
 
 Por padrão o controlador abre em `http://127.0.0.1:4310`.
 
-### Executar diretamente pelo código-fonte
+### Executar diretamente pelo código-fonte (Windows)
 
 No Windows, o desenvolvedor também pode usar `start.bat`, desde que tenha Python
 3. Esse modo serve para desenvolvimento; a distribuição normal deve usar o

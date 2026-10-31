@@ -1,0 +1,16 @@
+NexStage para Linux (64 bits)
+
+1. Extraia este arquivo (clique direito > Extrair aqui).
+2. Dentro da pasta NexStage, abra um terminal e rode:  sh instalar.sh
+3. Abra o NexStage pelo menu de aplicativos. Ele não abre janela de terminal.
+
+Sem instalar: execute ./NexStage direto da pasta extraída.
+
+Encerrar:  ícone do NexStage na bandeja > Encerrar NexStage,
+           ou  nexstage --stop  (ou ./NexStage --stop).
+Se o seu ambiente não mostra ícones de bandeja (GNOME puro, por exemplo), o
+NexStage continua funcionando em segundo plano; use  nexstage --stop  para encerrar.
+
+Dados (músicas, Bíblias, fontes, configurações): ~/.local/share/NexStage
+Fontes cujo nome começa com CMG são importadas do sistema automaticamente.
+Para remover: sh desinstalar.sh (os dados são mantidos).

@@ -39,7 +39,7 @@ from typing import Any
 
 
 APP_NAME = "NexStage"
-APP_VERSION = "0.4.4"
+APP_VERSION = "0.4.5"
 APP_AUTHOR = "Natan Gabriel"
 APP_REPOSITORY = "https://github.com/Natan-Tec/NexStage"
 GITHUB_LATEST_RELEASE_API = (
