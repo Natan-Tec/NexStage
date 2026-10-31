@@ -193,7 +193,7 @@ def stop_running_instance() -> int:
         os.kill(int(pid), signal.SIGTERM)
     except (OSError, ValueError, AttributeError):
         pass
-    for _ in range(40):
+    for _ in range(100):
         if not runtime_file().exists():
             print("NexStage encerrado.")
             return 0
@@ -281,7 +281,17 @@ def run(argv: list[str] | None = None) -> int:
         )
         server_thread.start()
 
+        def force_exit() -> None:
+            # The tray library can take ~5 s to let go after "stop"; quitting must feel immediate.
+            runtime.unlink(missing_ok=True)
+            stop_file().unlink(missing_ok=True)
+            os._exit(0)
+
         def request_stop(*_args: Any) -> None:
+            if not stop_event.is_set():
+                guard = threading.Timer(3.0, force_exit)
+                guard.daemon = True
+                guard.start()
             stop_event.set()
             if tray_icon is not None:
                 try:
