@@ -113,6 +113,7 @@
 
         <div class="settings-section-label">Fontes</div>
         <div class="settings-card"><b>Fontes do NexStage</b><p>Importe TTF, OTF, WOFF ou WOFF2. A instalação é local e não altera o Windows.</p><div class="settings-inline"><span id="fontCount">0 fontes importadas</span><button class="button soft" id="importFont"><svg><use href="#i-font"/></svg> Importar</button></div></div>
+        <div class="settings-card"><b>Fontes CMG do Windows</b><p>O NexStage procura as fontes instaladas no sistema cujo nome começa com <b>CMG</b>, importa sozinho ao abrir e apaga as cópias iguais que você tinha importado à mão. Fontes importadas à mão sem equivalente no sistema são mantidas.</p><label class="check-row"><input type="checkbox" id="fontAutoImport" checked><span>Importar automaticamente ao abrir</span></label><div class="settings-inline"><span id="fontSyncStatus">Ainda não verificado</span><button class="button soft" id="fontSyncNow"><svg><use href="#i-refresh"/></svg> Procurar agora</button></div></div>
 
         <div class="settings-section-label">Monitor do telão</div>
         <div class="settings-card"><b>Abrir no monitor escolhido</b><p id="screenHelp">Detecte as telas e permita o gerenciamento de janelas no navegador.</p><label class="mini-field"><span>Monitor padrão</span><select id="screenSelect"><option value="">Automático / atual</option></select></label><label class="check-row"><input type="checkbox" id="screenFill" checked><span>Usar toda a área disponível</span></label><button class="button soft full" id="detectScreens"><svg><use href="#i-display"/></svg> Detectar monitores</button></div>
@@ -133,7 +134,7 @@
 
         <div class="settings-section-label">Sobre e atualizações</div>
         <div class="settings-card about-card">
-          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.4.3</span></b><small>por Natan Gabriel</small></div></div>
+          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.4.4</span></b><small>por Natan Gabriel</small></div></div>
           <dl class="about-details">
             <div><dt>Sistema</dt><dd id="aboutSystem">Carregando…</dd></div>
             <div><dt>Controlador</dt><dd><code id="aboutController">—</code></dd></div>

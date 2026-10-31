@@ -39,7 +39,7 @@ from typing import Any
 
 
 APP_NAME = "NexStage"
-APP_VERSION = "0.4.3"
+APP_VERSION = "0.4.4"
 APP_AUTHOR = "Natan Gabriel"
 APP_REPOSITORY = "https://github.com/Natan-Tec/NexStage"
 GITHUB_LATEST_RELEASE_API = (
@@ -194,6 +194,7 @@ DEFAULT_SETTINGS = {
     "styles": DEFAULT_STYLES,
     "clock": DEFAULT_STATE["clock"],
     "bible": {"showVersion": True, "referenceFormat": "full"},
+    "fonts": {"autoImport": True, "prefix": "CMG"},
     "song": {
         "showSectionLabels": True,
         "showCredits": False,
@@ -683,6 +684,217 @@ def list_fonts() -> list[dict[str, Any]]:
     return results
 
 
+FONT_SUFFIXES = {".ttf", ".otf", ".woff", ".woff2"}
+DEFAULT_SYSTEM_FONT_PREFIX = "CMG"
+
+
+def system_font_directories() -> list[Path]:
+    """Folders where the operating system keeps installed fonts."""
+    home = Path.home()
+    if os.name == "nt":
+        windir = os.environ.get("WINDIR") or os.environ.get("SystemRoot") or r"C:\Windows"
+        folders = [Path(windir) / "Fonts"]
+        local = os.environ.get("LOCALAPPDATA", "").strip()
+        if local:
+            folders.append(Path(local) / "Microsoft" / "Windows" / "Fonts")
+        return folders
+    if sys.platform == "darwin":
+        return [Path("/System/Library/Fonts"), Path("/Library/Fonts"), home / "Library" / "Fonts"]
+    return [
+        Path("/usr/share/fonts"),
+        Path("/usr/local/share/fonts"),
+        home / ".fonts",
+        home / ".local" / "share" / "fonts",
+    ]
+
+
+def font_name_key(value: Any) -> str:
+    """Compare font names ignoring case, accents, spaces, dashes and underscores."""
+    return re.sub(r"[^a-z0-9]", "", search_key(value))
+
+
+def registry_system_fonts(prefix_key: str) -> list[Path]:
+    """Windows lists each installed font's display name in the registry.
+
+    This finds fonts whose *display name* starts with the prefix even when the
+    file name does not (for example, ``CMG Sans (TrueType)`` -> ``cmgs.ttf``).
+    """
+    if os.name != "nt":
+        return []
+    try:
+        import winreg  # type: ignore[import-not-found]
+    except ImportError:  # pragma: no cover - only on Windows
+        return []
+    windir = os.environ.get("WINDIR") or os.environ.get("SystemRoot") or r"C:\Windows"
+    found: list[Path] = []
+    for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):  # pragma: no cover
+        try:
+            with winreg.OpenKey(hive, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts") as key:
+                index = 0
+                while True:
+                    try:
+                        display, value, _kind = winreg.EnumValue(key, index)
+                    except OSError:
+                        break
+                    index += 1
+                    if not isinstance(value, str):
+                        continue
+                    if not font_name_key(re.sub(r"\s*\([^)]*\)\s*$", "", display)).startswith(prefix_key):
+                        continue
+                    path = Path(value)
+                    if not path.is_absolute():
+                        path = Path(windir) / "Fonts" / value
+                    found.append(path)
+        except OSError:
+            continue
+    return found
+
+
+def find_system_fonts(
+    prefix: str = DEFAULT_SYSTEM_FONT_PREFIX, directories: list[Path] | None = None
+) -> list[Path]:
+    """Installed fonts whose file or display name starts with ``prefix``."""
+    prefix_key = font_name_key(prefix)
+    if not prefix_key:
+        return []
+    candidates: list[Path] = []
+    for folder in directories if directories is not None else system_font_directories():
+        try:
+            if not folder.is_dir():
+                continue
+            for path in folder.rglob("*"):
+                if path.suffix.lower() in FONT_SUFFIXES and font_name_key(path.stem).startswith(prefix_key):
+                    candidates.append(path)
+        except OSError:
+            continue
+    if directories is None:
+        candidates.extend(registry_system_fonts(prefix_key))
+    unique: dict[str, Path] = {}
+    for path in candidates:
+        try:
+            if path.suffix.lower() not in FONT_SUFFIXES or not path.is_file():
+                continue
+        except OSError:
+            continue
+        unique.setdefault(safe_name(path.name).casefold(), path)
+    return sorted(unique.values(), key=lambda item: item.name.casefold())
+
+
+def file_digest(path: Path) -> str:
+    digest = hashlib.sha1()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def system_fonts_manifest() -> Path:
+    return DATA_DIR / "system-fonts.json"
+
+
+def sync_system_fonts(
+    prefix: str = DEFAULT_SYSTEM_FONT_PREFIX, directories: list[Path] | None = None
+) -> dict[str, Any]:
+    """Copy the system's CMG fonts into NexStage and drop manual duplicates.
+
+    * New system fonts are copied (keeping the same file name a manual import
+      would have, so styles that already use the font keep working).
+    * Fonts copied by this function are refreshed when the system file changes.
+    * Manually imported fonts that match a system font (same name or same
+      bytes) are deleted. Manual fonts without a system match are kept.
+    The result lists what happened; ``remap`` maps old font families to the
+    family that replaced them, so saved styles can be updated.
+    """
+    result: dict[str, Any] = {
+        "found": 0, "imported": [], "updated": [], "removedManual": [], "keptManual": [], "remap": {},
+    }
+    ensure_directories()
+    prefix_key = font_name_key(prefix)
+    sources = find_system_fonts(prefix, directories)
+    result["found"] = len(sources)
+    manifest_path = system_fonts_manifest()
+    manifest = read_json(manifest_path, {})
+    managed: dict[str, Any] = manifest.get("files", {}) if isinstance(manifest, dict) else {}
+    changed = False
+
+    def copy_in(source: Path, target: Path) -> None:
+        temporary = target.with_name(target.name + ".part")
+        try:
+            shutil.copyfile(source, temporary)
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    copied: dict[str, Path] = {}  # target file name -> system source
+    for source in sources:
+        target_name = safe_name(source.name)
+        target = FONT_DIR / target_name
+        try:
+            stat = source.stat()
+            meta = {"source": str(source), "size": stat.st_size, "mtime": int(stat.st_mtime)}
+            known = managed.get(target_name)
+            if known and target.is_file():
+                if known.get("size") != meta["size"] or known.get("mtime") != meta["mtime"]:
+                    copy_in(source, target)
+                    result["updated"].append(target_name)
+                    managed[target_name] = meta
+                    changed = True
+            else:
+                if target.exists():  # same name, imported by hand: replaced by the system copy
+                    result["removedManual"].append(target_name)
+                else:
+                    result["imported"].append(target_name)
+                copy_in(source, target)
+                managed[target_name] = meta
+                changed = True
+            copied[target_name] = source
+        except OSError:
+            continue
+
+    # Manual copies stored under another name (e.g. "CMG-Sans-2.ttf") or in another case.
+    try:
+        existing = [item for item in FONT_DIR.iterdir() if item.is_file() and item.suffix.lower() in FONT_SUFFIXES]
+    except OSError:
+        existing = []
+    for path in existing:
+        if path.name in managed or path.name in result["removedManual"]:
+            continue
+        if not font_name_key(path.stem).startswith(prefix_key):
+            continue
+        match: str | None = None
+        for name, source in copied.items():
+            if font_name_key(Path(name).stem) == font_name_key(path.stem):
+                match = name
+                break
+        if match is None:
+            try:
+                size = path.stat().st_size
+                digest = None
+                for name, source in copied.items():
+                    if source.stat().st_size != size:
+                        continue
+                    digest = digest or file_digest(path)
+                    if file_digest(source) == digest:
+                        match = name
+                        break
+            except OSError:
+                match = None
+        if match is None:
+            result["keptManual"].append(path.name)
+            continue
+        try:
+            path.unlink()
+        except OSError:
+            result["keptManual"].append(path.name)
+            continue
+        result["removedManual"].append(path.name)
+        if path.name != match:
+            result["remap"][font_family_for(path.name)] = font_family_for(match)
+    if changed:
+        atomic_write_json(manifest_path, {"files": managed})
+    return result
+
+
 def louvorja_candidates(configured: str = "") -> list[Path]:
     candidates: list[Path] = []
     if configured.strip():
@@ -1105,6 +1317,14 @@ class AppStore:
             self.settings["styles"]["song"]["text"]["fontWeight"] = old_theme["fontWeight"]
             self.settings["styles"]["song"]["text"]["maxWidth"] = old_theme["maxWidth"]
 
+        self.last_font_sync: dict[str, Any] = {}
+        self.font_sync_announced = False
+        if self.settings.get("fonts", {}).get("autoImport", True):
+            try:
+                self.last_font_sync = self._sync_fonts_locked()
+            except Exception:  # fonts are optional; never block startup
+                self.last_font_sync = {}
+
         self.state = deep_merge(DEFAULT_STATE, {})
         self.state["theme"] = {**DEFAULT_THEME, **self.settings.get("theme", {})}
         self.state["styles"] = deep_merge(DEFAULT_STYLES, self.settings.get("styles", {}))
@@ -1112,6 +1332,42 @@ class AppStore:
         self.state["fonts"] = list_fonts()
         self.state["background"] = self.settings.get("defaultBackground", "")
         self.state["overlay"] = self.settings.get("defaultOverlay", "")
+
+    def _sync_fonts_locked(self) -> dict[str, Any]:
+        prefix = str(self.settings.get("fonts", {}).get("prefix") or DEFAULT_SYSTEM_FONT_PREFIX)
+        result = sync_system_fonts(prefix)
+        remap = result.pop("remap", {})
+        if remap:
+            # Styles that used a deleted manual copy now point to the system copy.
+            def replace(value: Any) -> Any:
+                text = json.dumps(value, ensure_ascii=False)
+                for old, new in remap.items():
+                    text = text.replace(old, new)
+                return json.loads(text)
+
+            self.settings["styles"] = replace(self.settings.get("styles", {}))
+            state = getattr(self, "state", None)
+            if isinstance(state, dict) and "styles" in state:
+                state["styles"] = replace(state["styles"])
+            atomic_write_json(SETTINGS_FILE, self.settings)
+        return result
+
+    def _font_sync_for_bootstrap(self) -> dict[str, Any]:
+        """The startup result is announced once, not on every page reload."""
+        announce = not self.font_sync_announced
+        self.font_sync_announced = True
+        return {**self.last_font_sync, "announce": announce} if self.last_font_sync else {}
+
+    def sync_fonts(self) -> dict[str, Any]:
+        """Search the system again (button in the settings) and refresh the state."""
+        with self.changed:
+            result = self._sync_fonts_locked()
+            self.last_font_sync = result
+            self.state["fonts"] = list_fonts()
+            self.state["revision"] = int(self.state.get("revision", 0)) + 1
+            self.state["updatedAt"] = int(time.time() * 1000)
+            self.changed.notify_all()
+            return {**result, "fonts": self.state["fonts"], "styles": self.settings.get("styles", {})}
 
     def bootstrap(self) -> dict[str, Any]:
         with self.lock:
@@ -1137,6 +1393,7 @@ class AppStore:
                 "bibles": bibles,
                 "media": list_media(),
                 "fonts": list_fonts(),
+                "fontSync": self._font_sync_for_bootstrap(),
                 "settings": self.settings,
                 "state": self.state,
                 "defaults": {"styles": DEFAULT_STYLES, "settings": DEFAULT_SETTINGS},
@@ -1486,6 +1743,8 @@ class NexStageHandler(BaseHTTPRequestHandler):
             payload = self.read_json_body()
             if path == "/api/state":
                 self.send_json(STORE.update_state(payload), cache=False)
+            elif path == "/api/fonts/sync":
+                self.send_json(STORE.sync_fonts(), cache=False)
             elif path == "/api/song/import":
                 song = parse_song_text(
                     str(payload.get("filename", "musica.txt")),

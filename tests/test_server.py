@@ -2,6 +2,7 @@ import json
 import hashlib
 import sqlite3
 import sys
+import os
 import tempfile
 import threading
 import time
@@ -258,6 +259,81 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(info["author"], "Natan Gabriel")
         self.assertEqual(info["controllerUrl"], "http://127.0.0.1:4317/")
         self.assertEqual(info["obsUrl"], "http://127.0.0.1:4317/obs")
+
+
+class SystemFontSyncTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        root = Path(self.temporary.name)
+        self.original = (server.DATA_DIR, server.MEDIA_DIR, server.BIBLE_DIR, server.FONT_DIR, server.LIBRARY_FILE, server.SETTINGS_FILE)
+        server.DATA_DIR = root / "data"
+        server.MEDIA_DIR = root / "media"
+        server.BIBLE_DIR = server.DATA_DIR / "bibles"
+        server.FONT_DIR = server.DATA_DIR / "fonts"
+        server.LIBRARY_FILE = server.DATA_DIR / "library.json"
+        server.SETTINGS_FILE = server.DATA_DIR / "settings.json"
+        server.ensure_directories()
+        self.system = root / "system"
+        (self.system / "nested").mkdir(parents=True)
+
+    def tearDown(self):
+        (server.DATA_DIR, server.MEDIA_DIR, server.BIBLE_DIR, server.FONT_DIR, server.LIBRARY_FILE, server.SETTINGS_FILE) = self.original
+        self.temporary.cleanup()
+
+    def test_finds_only_cmg_fonts_by_prefix(self):
+        (self.system / "CMG Sans.ttf").write_bytes(b"a")
+        (self.system / "nested" / "cmg_Bold.otf").write_bytes(b"b")
+        (self.system / "Arial.ttf").write_bytes(b"c")
+        (self.system / "cmg.txt").write_text("x")
+        names = [item.name for item in server.find_system_fonts("CMG", [self.system])]
+        self.assertEqual(names, ["CMG Sans.ttf", "cmg_Bold.otf"])
+
+    def test_imports_replaces_manual_copies_and_keeps_styles(self):
+        (self.system / "CMG Sans.ttf").write_bytes(b"system-sans")
+        (self.system / "CMG Bold.ttf").write_bytes(b"system-bold")
+        (server.FONT_DIR / "CMG-Sans.ttf").write_bytes(b"manual-old")
+        (server.FONT_DIR / "CMG-Bold-2.ttf").write_bytes(b"system-bold")
+        (server.FONT_DIR / "CMG-Only-Mine.ttf").write_bytes(b"mine")
+        (server.FONT_DIR / "Other.ttf").write_bytes(b"other")
+        result = server.sync_system_fonts("CMG", [self.system])
+        names = sorted(item.name for item in server.FONT_DIR.iterdir())
+        self.assertEqual(names, ["CMG-Bold.ttf", "CMG-Only-Mine.ttf", "CMG-Sans.ttf", "Other.ttf"])
+        self.assertEqual((server.FONT_DIR / "CMG-Sans.ttf").read_bytes(), b"system-sans")
+        self.assertEqual(sorted(result["removedManual"]), ["CMG-Bold-2.ttf", "CMG-Sans.ttf"])
+        self.assertEqual(result["keptManual"], ["CMG-Only-Mine.ttf"])
+        self.assertEqual(
+            result["remap"], {server.font_family_for("CMG-Bold-2.ttf"): server.font_family_for("CMG-Bold.ttf")}
+        )
+
+    def test_second_run_changes_nothing_and_updates_when_system_font_changes(self):
+        source = self.system / "CMG Sans.ttf"
+        source.write_bytes(b"v1")
+        server.sync_system_fonts("CMG", [self.system])
+        again = server.sync_system_fonts("CMG", [self.system])
+        self.assertFalse(again["imported"] or again["updated"] or again["removedManual"])
+        source.write_bytes(b"version-two")
+        os.utime(source, (1, 1))
+        changed = server.sync_system_fonts("CMG", [self.system])
+        self.assertEqual(changed["updated"], ["CMG-Sans.ttf"])
+        self.assertEqual((server.FONT_DIR / "CMG-Sans.ttf").read_bytes(), b"version-two")
+
+    def test_store_imports_on_startup_unless_disabled(self):
+        (self.system / "CMG Sans.ttf").write_bytes(b"x")
+        original = server.system_font_directories
+        server.system_font_directories = lambda: [self.system]
+        try:
+            store = server.AppStore()
+            self.assertEqual(store.last_font_sync["imported"], ["CMG-Sans.ttf"])
+            self.assertTrue(store.bootstrap()["fontSync"]["announce"])
+            self.assertFalse(store.bootstrap()["fontSync"]["announce"])
+            for item in server.FONT_DIR.iterdir():
+                item.unlink()
+            server.system_fonts_manifest().unlink()
+            server.atomic_write_json(server.SETTINGS_FILE, {"fonts": {"autoImport": False}})
+            self.assertEqual(server.AppStore().last_font_sync, {})
+            self.assertEqual(list(server.FONT_DIR.iterdir()), [])
+        finally:
+            server.system_font_directories = original
 
 
 if __name__ == "__main__":

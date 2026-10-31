@@ -39,7 +39,7 @@
     uiAccent: $("#uiAccent"), uiScale: $("#uiScale"), uiScaleOut: $("#uiScaleOut"), uiDensity: $("#uiDensity"),
     confirmDelete: $("#confirmDelete"), confirmClear: $("#confirmClear"), crossfadeMs: $("#crossfadeMs"), crossfadeOut: $("#crossfadeOut"), previewMode: $("#previewMode"),
     songShowLabels: $("#songShowLabels"), songShowCredits: $("#songShowCredits"), songCreditsFormat: $("#songCreditsFormat"),
-    fontCount: $("#fontCount"), slideDialog: $("#slideDialog"), slideDialogTitle: $("#slideDialogTitle"), slideLabel: $("#slideLabel"), slideText: $("#slideText"),
+    fontCount: $("#fontCount"), fontAutoImport: $("#fontAutoImport"), fontSyncNow: $("#fontSyncNow"), fontSyncStatus: $("#fontSyncStatus"), slideDialog: $("#slideDialog"), slideDialogTitle: $("#slideDialogTitle"), slideLabel: $("#slideLabel"), slideText: $("#slideText"),
     songEditTitle: $("#songEditTitle"), songEditArtist: $("#songEditArtist"), songEditAlbum: $("#songEditAlbum"),
     aboutVersion: $("#aboutVersion"), aboutSystem: $("#aboutSystem"), aboutController: $("#aboutController"),
     aboutObs: $("#aboutObs"), aboutDataPath: $("#aboutDataPath"), aboutGithub: $("#aboutGithub"),
@@ -1198,6 +1198,7 @@
     const clock = app.settings.clock || {};
     refs.clock24.checked = clock.format24 !== false; refs.clockSeconds.checked = Boolean(clock.showSeconds);
     refs.clockShowDate.checked = clock.showDate !== false; refs.clockDateFormat.value = clock.dateFormat || "long"; refs.clockLabel.value = clock.label || "";
+    refs.fontAutoImport.checked = app.settings.fonts?.autoImport !== false;
     const bible = app.settings.bible || {};
     refs.bibleShowVersion.checked = bible.showVersion !== false; refs.bibleReferenceFormat.value = bible.referenceFormat || "full";
     const song = app.settings.song || {};
@@ -1365,6 +1366,43 @@
     } catch (error) { toast("Não foi possível importar a fonte", error.message); }
   }
 
+  function fontSyncSummary(result) {
+    const added = (result.imported?.length || 0) + (result.updated?.length || 0);
+    const removed = result.removedManual?.length || 0;
+    const kept = result.keptManual?.length || 0;
+    if (!result.found) return "Nenhuma fonte CMG encontrada no sistema";
+    const parts = [`${result.found} no sistema`];
+    if (added) parts.push(`${added} importada${added === 1 ? "" : "s"}`);
+    if (removed) parts.push(`${removed} manual${removed === 1 ? "" : "is"} removida${removed === 1 ? "" : "s"}`);
+    if (kept) parts.push(`${kept} manual${kept === 1 ? "" : "is"} mantida${kept === 1 ? "" : "s"}`);
+    return parts.join(" • ");
+  }
+
+  async function syncSystemFonts() {
+    refs.fontSyncNow.disabled = true; refs.fontSyncStatus.textContent = "Procurando…";
+    try {
+      const result = await api("/api/fonts/sync", { method: "POST", body: "{}" });
+      app.fonts = result.fonts || []; app.state.fonts = app.fonts;
+      if (result.removedManual?.length && result.styles) {
+        // cópias manuais apagadas: os estilos passam a usar a fonte do sistema
+        app.settings.styles = clone(result.styles); app.state.styles = clone(result.styles);
+        applyStyleControls();
+      }
+      renderFontFaces(); populateFontOptions();
+      if (app.state.live) pushState(buildVisualState(true));
+      refs.fontSyncStatus.textContent = fontSyncSummary(result);
+      toast("Fontes CMG", fontSyncSummary(result));
+    } catch (error) {
+      refs.fontSyncStatus.textContent = "Não foi possível verificar";
+      toast("Falha ao procurar fontes", error.message);
+    } finally { refs.fontSyncNow.disabled = false; }
+  }
+
+  function fontAutoImportChanged() {
+    app.settings.fonts = { ...(app.settings.fonts || {}), autoImport: refs.fontAutoImport.checked };
+    saveSettings();
+  }
+
   function downloadJson(filename, payload) {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob); const link = document.createElement("a");
@@ -1375,7 +1413,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.4.3"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.4.4"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }
@@ -1569,6 +1607,7 @@
     $("#searchLja").addEventListener("click", searchLja); refs.ljaQuery.addEventListener("keydown", event => { if (event.key === "Enter") searchLja(); });
     $("#saveLjaPath").addEventListener("click", saveLjaPath); $("#refreshLja").addEventListener("click", refreshLjaStatus);
 
+    refs.fontSyncNow.addEventListener("click", syncSystemFonts); refs.fontAutoImport.addEventListener("change", fontAutoImportChanged);
     $("#importFont").addEventListener("click", () => refs.fontInput.click()); refs.fontInput.addEventListener("change", event => importFontFile(event.target.files[0]));
     $("#refreshLjaBibles").addEventListener("click", async () => { await refreshLjaStatus(); toast(app.ljaBibleStatus?.available ? "Bíblias atualizadas" : "Bíblias indisponíveis", refs.ljaBibleQuickStatus.textContent); });
     $("#exportSettings").addEventListener("click", exportSettingsFile);
@@ -1655,6 +1694,10 @@
       applySettingsControls(); renderFontFaces(); populateFontOptions(); renderScreens();
       renderSongs(); renderBibles(); renderMedia(); renderSlides(); applyThemeControls(); renderPreview(); updateLiveUi(); updateClockPreview(); wireEvents();
       refreshLjaStatus(); restoreScreensIfAllowed();
+      if (data.fontSync && Object.keys(data.fontSync).length) {
+        refs.fontSyncStatus.textContent = fontSyncSummary(data.fontSync);
+        if (data.fontSync.announce && (data.fontSync.imported?.length || 0) + (data.fontSync.updated?.length || 0) + (data.fontSync.removedManual?.length || 0)) toast("Fontes CMG", fontSyncSummary(data.fontSync));
+      } else refs.fontSyncStatus.textContent = app.settings.fonts?.autoImport === false ? "Importação automática desligada" : "Ainda não verificado";
       await loadAbout();
       if (app.appInfo?.updateSupported) setTimeout(() => checkForUpdates(true), 1800);
       setInterval(updateClockPreview, 500);

@@ -1,4 +1,4 @@
-# NexStage 0.4.3
+# NexStage 0.4.4
 
 Apresentador local para igrejas, criado para letras, Bíblia em XML ou Louvor JA, vídeos de
 fundo e integração simples com OBS. A interface é HTML/CSS/JavaScript, mas o

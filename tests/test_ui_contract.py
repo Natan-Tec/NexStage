@@ -113,6 +113,11 @@ class ControllerPreviewContractTests(unittest.TestCase):
         for fragment in ("windows-latest", "NexStage-Setup.exe", "NexStage.iss", "unittest discover", "--windowed"):
             self.assertIn(fragment, workflow)
 
+    def test_044_system_cmg_fonts_controls(self):
+        self.assertTrue({"fontAutoImport", "fontSyncNow", "fontSyncStatus"}.issubset(self.parser.ids))
+        self.assertIn("/api/fonts/sync", self.javascript)
+        self.assertIn("function syncSystemFonts", self.javascript)
+
     def test_042_windows_installer_contract(self):
         installer = (ROOT / "packaging" / "windows" / "NexStage.iss").read_text(encoding="utf-8")
         launcher = (ROOT / "windows_launcher.py").read_text(encoding="utf-8")
