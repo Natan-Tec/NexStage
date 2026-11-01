@@ -349,3 +349,49 @@ body[data-density="large"] .library-meta b { font-size: 12.5px; }
   .monitor-preview { padding: 7px; }
   .monitor-preview-head b { display: none; }
 }
+
+/* ---- YouTube (controle remoto do vídeo) ---- */
+.yt-add { display: flex; gap: 7px; margin: 4px 0 10px; }
+.yt-add input { flex: 1; min-width: 0; height: 40px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line); background: #0d141e; color: #d9e5f3; outline: 0; font-size: 11px; }
+.yt-add input:focus { border-color: #177edc; }
+.yt-add .button { height: 40px; padding: 0 12px; }
+.yt-tools { margin: 0 0 10px; padding: 11px; border: 1px solid #5b4a1d; border-radius: 10px; background: #231d0c; color: #e5cf8d; font-size: 10.5px; line-height: 1.45; display: grid; gap: 8px; }
+.yt-tools.error { border-color: #6b2b2b; background: #2a1414; color: #f0a9a9; }
+.yt-tools .bar { height: 5px; border-radius: 3px; background: #0006; overflow: hidden; }
+.yt-tools .bar i { display: block; height: 100%; width: 0; background: #e5b43d; transition: width .3s; }
+.yt-remote { padding: 12px; border: 1px solid #1d2c3f; border-radius: 12px; background: #0e1722; display: grid; gap: 12px; }
+.yt-now { display: grid; gap: 3px; min-width: 0; }
+.yt-now b { color: #e4edf8; font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
+.yt-now small { color: #7f93a9; font-size: 10px; line-height: 1.4; }
+.yt-now small.warn { color: #ffd079; }
+.yt-now small.bad { color: #ff9a8a; }
+.yt-seek input[type=range], .yt-row input[type=range] { width: 100%; height: 30px; accent-color: var(--blue); cursor: pointer; }
+.yt-times { display: flex; justify-content: space-between; color: #8ea3ba; font-size: 10.5px; font-variant-numeric: tabular-nums; margin-top: -2px; }
+.yt-transport { display: grid; grid-template-columns: 1fr 1.7fr 1fr; gap: 8px; }
+.yt-btn { height: 46px; border: 1px solid #25405e; border-radius: 10px; background: #12253a; color: #cfe2f7; font-weight: 800; font-size: 11.5px; cursor: pointer; }
+.yt-btn:hover:not(:disabled) { background: #19324d; }
+.yt-btn:disabled { opacity: .4; cursor: default; }
+.yt-btn.big { height: 52px; font-size: 13px; border-color: #2f7fd0; background: linear-gradient(135deg, #1a5fa6, #1566b8); color: #fff; }
+.yt-btn.big.pausing { background: linear-gradient(135deg, #7a4d12, #99620f); border-color: #c98a24; }
+.yt-btn.small { height: 34px; padding: 0 10px; font-size: 10px; }
+.yt-btn.small.on { background: #5a2323; border-color: #a04040; color: #ffd2d2; }
+.yt-row { display: grid; grid-template-columns: 62px 1fr auto auto; align-items: center; gap: 8px; color: #8ea3ba; font-size: 10.5px; font-weight: 700; }
+.yt-row select { grid-column: 2 / -1; height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: #0d141e; color: #d9e5f3; font-size: 11px; }
+.yt-row b { color: #cfe2f7; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+.yt-keys { color: #5f7287; font-size: 9px; line-height: 1.4; }
+.yt-list { display: grid; gap: 8px; }
+.yt-item { display: grid; grid-template-columns: 78px 1fr; gap: 9px; padding: 8px; border: 1px solid #1b2a3c; border-radius: 10px; background: #0d151f; }
+.yt-item.playing { border-color: #2f7fd0; background: #0f2135; }
+.yt-item img { width: 78px; height: 44px; object-fit: cover; border-radius: 6px; background: #05080d; }
+.yt-meta { min-width: 0; display: grid; gap: 4px; }
+.yt-meta b { color: #d5e2f1; font-size: 10.5px; line-height: 1.3; overflow-wrap: anywhere; }
+.yt-meta small { color: #7a8ea5; font-size: 9.5px; line-height: 1.4; }
+.yt-meta small.bad { color: #ff9a8a; }
+.yt-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.yt-chip { padding: 3px 7px; border-radius: 999px; border: 1px solid #28405a; background: #101c2a; color: #8fa6bd; font-size: 9px; font-weight: 800; cursor: pointer; }
+.yt-chip.done { border-color: #2b7b52; background: #0f2a1d; color: #7fd4a4; cursor: default; }
+.yt-chip.busy { border-color: #8a6d1c; background: #261e0a; color: #e5c36a; cursor: default; }
+.yt-actions { display: flex; gap: 6px; margin-top: 2px; }
+.yt-actions .button { height: 32px; padding: 0 12px; font-size: 10px; }
+.yt-actions .button.icon { width: 32px; padding: 0; }
+.yt-note { color: #5f7287; font-size: 9.5px; line-height: 1.45; margin: 10px 0 0; }

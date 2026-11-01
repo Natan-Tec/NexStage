@@ -1,4 +1,4 @@
-# NexStage 0.4.5
+# NexStage 0.5.0
 
 Apresentador local para igrejas, criado para letras, Bíblia em XML ou Louvor JA, vídeos de
 fundo e integração simples com OBS. A interface é HTML/CSS/JavaScript, mas o
@@ -7,6 +7,14 @@ npm, servidor de banco de dados ou internet para apresentar.
 
 > O nome **NexStage** é provisório e pode ser trocado depois sem alterar a base
 > técnica.
+
+## Vídeos do YouTube
+
+Na aba **YouTube**, cole um link (ou o código de 11 letras do vídeo). O NexStage baixa o
+vídeo em H.264 em segundo plano e, se você projetar antes de acabar, transmite direto e troca
+para o arquivo local depois. O vídeo toca só na projeção; o controlador mostra apenas os
+botões (play, linha do tempo, volume, resolução). Os componentes yt-dlp e deno são baixados
+na primeira vez; o ffmpeg vai dentro do instalador. Detalhes em `CHANGELOG-0.5.0.md`.
 
 ## Instalar e abrir
 

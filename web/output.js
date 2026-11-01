@@ -17,6 +17,12 @@
     fullscreen: document.getElementById("fullscreenHint")
   };
 
+  const yt = {
+    el: document.getElementById("ytVideo"), token: -1, seekToken: 0, mode: "", startAt: 0, duration: 0,
+    ended: false, error: "", needsGesture: false, buffering: false, wantMuted: false, bgPaused: false, loading: false
+  };
+  const obsAudio = new URLSearchParams(location.search).get("audio") === "1";
+
   let revision = 0;
   let activeSlot = 0;
   let backgroundUrl = null;
@@ -90,7 +96,7 @@
           video.pause();
           return;
         }
-        try { await video.play(); } catch (_) { /* autoplay is muted; retry occurs on visibility */ }
+        if (!yt.bgPaused) { try { await video.play(); } catch (_) { /* autoplay is muted; retry occurs on visibility */ } }
       } else {
         const image = document.createElement("img");
         image.alt = "";
@@ -247,6 +253,107 @@
     }
   }
 
+  // ---- YouTube ---------------------------------------------------------
+  // The operator panel sends commands; this page only plays and reports its position.
+  function ytPosition() {
+    const base = yt.mode === "stream" ? yt.startAt : 0;
+    return base + (Number.isFinite(yt.el.currentTime) ? yt.el.currentTime : 0);
+  }
+
+  function ytUnload() {
+    if (yt.token === -1 && !yt.el.getAttribute("src")) return;
+    yt.token = -1;
+    yt.el.pause();
+    yt.el.removeAttribute("src");
+    yt.el.load();
+    yt.el.classList.remove("visible");
+    yt.ended = false; yt.error = ""; yt.needsGesture = false; yt.buffering = false;
+  }
+
+  function ytLoad(y) {
+    yt.token = y.srcToken;
+    yt.mode = y.mode;
+    yt.startAt = Number(y.startAt || 0);
+    yt.duration = Number(y.duration || 0);
+    yt.seekToken = y.seekToken;
+    yt.ended = false; yt.error = ""; yt.buffering = true; yt.loading = true;
+    yt.el.pause();
+    yt.el.src = y.src;
+    yt.el.load();
+  }
+
+  function ytPlay() {
+    const attempt = yt.el.play();
+    if (!attempt || !attempt.catch) return;
+    attempt.catch(error => {
+      if (error && error.name === "NotAllowedError") {
+        // Sound blocked until the first click on this page: play silently meanwhile.
+        yt.needsGesture = true;
+        yt.el.muted = true;
+        yt.el.play().catch(() => {});
+      }
+    });
+  }
+
+  function applyYoutube(state) {
+    const y = state.youtube || {};
+    const hasVideo = Boolean(y.item && y.src && state.mode === "youtube");
+    const visible = hasVideo && Boolean(state.live && !state.black);
+    document.body.classList.toggle("mode-youtube", visible);
+    if (!hasVideo) {
+      ytUnload();
+    } else {
+      if (y.srcToken !== yt.token) ytLoad(y);
+      if (y.seekToken !== yt.seekToken) {
+        yt.seekToken = y.seekToken;
+        if (y.mode === "file") { yt.ended = false; try { yt.el.currentTime = Number(y.seekTo || 0); } catch (_) { /* not ready yet */ } }
+      }
+      yt.wantMuted = Boolean(y.muted) || (isObs && !obsAudio);
+      yt.el.volume = Math.max(0, Math.min(1, Number(y.volume ?? 1)));
+      yt.el.muted = yt.wantMuted || yt.needsGesture;
+      yt.el.classList.toggle("visible", visible);
+      if (visible && y.playing && !yt.ended) { if (yt.el.paused) ytPlay(); }
+      else if (!yt.el.paused) yt.el.pause();
+    }
+    // Only one thing decodes at a time: the looping background video rests while the YouTube video is on screen.
+    if (visible !== yt.bgPaused) {
+      yt.bgPaused = visible;
+      document.querySelectorAll(".media-slot video").forEach(video => { if (visible) video.pause(); else video.play().catch(() => {}); });
+    }
+  }
+
+  yt.el.addEventListener("loadedmetadata", () => {
+    yt.loading = false;
+    if (yt.mode === "file" && yt.startAt > 0.5) { try { yt.el.currentTime = yt.startAt; } catch (_) { /* ignored */ } }
+  });
+  yt.el.addEventListener("waiting", () => { yt.buffering = true; });
+  yt.el.addEventListener("stalled", () => { yt.buffering = true; });
+  yt.el.addEventListener("playing", () => { yt.buffering = false; yt.error = ""; });
+  yt.el.addEventListener("canplay", () => { yt.buffering = false; });
+  yt.el.addEventListener("ended", () => { yt.ended = true; });
+  yt.el.addEventListener("error", () => {
+    const code = yt.el.error?.code;
+    yt.error = code === 4 ? "O navegador não conseguiu abrir este vídeo (arquivo ou transmissão indisponível)." : "Erro ao reproduzir o vídeo.";
+    yt.buffering = false;
+  });
+
+  // First click on the projection allows sound (browsers block sound until the page was used once).
+  document.addEventListener("pointerdown", () => {
+    if (yt.needsGesture) { yt.needsGesture = false; yt.el.muted = yt.wantMuted; }
+  }, true);
+
+  if (!isObs) {
+    setInterval(() => {
+      if (yt.token === -1) return;
+      const payload = {
+        srcToken: yt.token, t: ytPosition(), duration: yt.duration || (Number.isFinite(yt.el.duration) ? yt.el.duration : 0),
+        playing: !yt.el.paused && !yt.el.ended, buffering: yt.buffering || (yt.el.readyState < 3 && !yt.el.paused),
+        ended: yt.ended, error: yt.error, needsGesture: yt.needsGesture
+      };
+      fetch("/api/youtube/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), cache: "no-store" }).catch(() => {});
+    }, 500);
+  }
+
   function applyState(state) {
     currentState = state;
     revision = Number(state.revision || revision);
@@ -265,7 +372,7 @@
       elements.reference.textContent = state.slide?.reference || "";
     }
 
-    const visible = Boolean(state.live && !state.black && (isClock || state.slide?.text));
+    const visible = Boolean(state.live && !state.black && state.mode !== "youtube" && (isClock || state.slide?.text));
     elements.content.classList.toggle("visible", visible);
 
     const overlayVisible = Boolean(state.overlay && !state.black);
@@ -273,6 +380,7 @@
       elements.overlay.src = state.overlay;
     }
     elements.overlay.classList.toggle("visible", overlayVisible);
+    applyYoutube(state);
 
     // A black OBS browser source would cover the camera. In OBS, blackout means transparency.
     elements.blackout.classList.toggle("visible", Boolean(state.black && !isObs));
@@ -300,7 +408,7 @@
   elements.fullscreen?.addEventListener("click", requestFullscreen);
   document.addEventListener("dblclick", () => { if (!isObs) requestFullscreen(); });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) elements.slots[activeSlot].querySelector("video")?.play().catch(() => {});
+    if (!document.hidden && !yt.bgPaused) elements.slots[activeSlot].querySelector("video")?.play().catch(() => {});
   });
   addEventListener("resize", () => { if (currentState) { setTheme(currentState); fitText(); } });
   poll();

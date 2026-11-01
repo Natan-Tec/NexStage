@@ -1,6 +1,6 @@
 name: Compilar e publicar o instalador
 
-# Envie uma tag como v0.4.5 para compilar tudo e publicar a release com:
+# Envie uma tag como v0.5.0 para compilar tudo e publicar a release com:
 #   NexStage-Setup.exe              (Windows)
 #   NexStage-Linux-x64.tar.gz       (Linux 64 bits)
 #   NexStage-macOS-AppleSilicon.dmg (Mac com chip M1/M2/M3/M4)
@@ -86,6 +86,7 @@ jobs:
             --contents-directory app \
             --add-data "web;web" \
             --hidden-import pystray._win32 \
+            --collect-all imageio_ffmpeg \
             windows_launcher.py
           cp README.md LICENSE.txt dist/NexStage/
           cp "CHANGELOG-${{ needs.prepare.outputs.version }}.md" dist/NexStage/
@@ -155,6 +156,7 @@ jobs:
             --name NexStage \
             --add-data "web:web" \
             --hidden-import pystray._xorg \
+            --collect-all imageio_ffmpeg \
             --collect-submodules Xlib \
             desktop_launcher.py
 
@@ -250,6 +252,7 @@ jobs:
             --osx-bundle-identifier br.com.natangabriel.nexstage \
             --add-data "web:web" \
             --hidden-import pystray._darwin \
+            --collect-all imageio_ffmpeg \
             --hidden-import objc \
             --hidden-import AppKit \
             --hidden-import Foundation \

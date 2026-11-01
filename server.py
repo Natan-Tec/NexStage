@@ -20,6 +20,7 @@ import re
 import shutil
 import socket
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
@@ -37,9 +38,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import youtube as yt
+
 
 APP_NAME = "NexStage"
-APP_VERSION = "0.4.5"
+APP_VERSION = "0.5.0"
 APP_AUTHOR = "Natan Gabriel"
 APP_REPOSITORY = "https://github.com/Natan-Tec/NexStage"
 GITHUB_LATEST_RELEASE_API = (
@@ -177,6 +180,7 @@ DEFAULT_STATE: dict[str, Any] = {
     "theme": DEFAULT_THEME,
     "styles": DEFAULT_STYLES,
     "fonts": [],
+    "youtube": {},
     "clock": {
         "format24": True,
         "showSeconds": False,
@@ -195,6 +199,7 @@ DEFAULT_SETTINGS = {
     "clock": DEFAULT_STATE["clock"],
     "bible": {"showVersion": True, "referenceFormat": "full"},
     "fonts": {"autoImport": True, "prefix": "CMG"},
+    "youtube": {"autoDownload": True, "defaultHeight": 720, "maxFps": 30, "volume": 0.8, "autoSwitchToFile": True},
     "song": {
         "showSectionLabels": True,
         "showCredits": False,
@@ -1325,7 +1330,15 @@ class AppStore:
             except Exception:  # fonts are optional; never block startup
                 self.last_font_sync = {}
 
+        self.yt_tools = yt.YouTubeTools(DATA_DIR / "tools")
+        self.yt_library = yt.YouTubeLibrary(DATA_DIR, self.yt_tools, lambda: self.settings)
+        self.player = yt.PlayerController(self.yt_library, lambda: self.settings)
+        self._volume_saved = (0.0, float(self.settings.get("youtube", {}).get("volume", 0.8)))
+        for leftover in (DATA_DIR / "youtube").glob(".tmp-*") if (DATA_DIR / "youtube").is_dir() else []:
+            shutil.rmtree(leftover, ignore_errors=True)  # unfinished downloads from a previous run
+
         self.state = deep_merge(DEFAULT_STATE, {})
+        self.state["youtube"] = self.player.public()
         self.state["theme"] = {**DEFAULT_THEME, **self.settings.get("theme", {})}
         self.state["styles"] = deep_merge(DEFAULT_STYLES, self.settings.get("styles", {}))
         self.state["clock"] = deep_merge(DEFAULT_STATE["clock"], self.settings.get("clock", {}))
@@ -1408,9 +1421,74 @@ class AppStore:
             safe["styles"] = deep_merge(DEFAULT_STYLES, safe.get("styles", {}))
             safe["clock"] = deep_merge(DEFAULT_STATE["clock"], safe.get("clock", {}))
             safe["fonts"] = safe.get("fonts") or list_fonts()
+            # Showing a slide or the clock dismisses the video; flags such as blackout do not.
+            if self.player.state["item"] and safe.get("mode") != "youtube":
+                self.player.command("stop", {})
+            safe["youtube"] = self.player.public()
             self.state = safe
             self.changed.notify_all()
             return self.state
+
+    # ---- YouTube -------------------------------------------------------
+    def _publish_youtube(self) -> None:
+        self.state["youtube"] = self.player.public()
+        self.state["revision"] = int(self.state.get("revision", 0)) + 1
+        self.state["updatedAt"] = int(time.time() * 1000)
+        self.changed.notify_all()
+
+    def youtube_overview(self) -> dict[str, Any]:
+        self.youtube_tick()
+        return {
+            "tools": self.yt_tools.status(),
+            "items": self.yt_library.snapshot(),
+            "status": self.player.current_status(),
+            "settings": self.settings.get("youtube", {}),
+        }
+
+    def youtube_add(self, text: str) -> dict[str, Any]:
+        item = self.yt_library.add(text)
+        if not self.yt_tools.ready() and self.yt_tools.progress.get("state") != "running":
+            self.yt_tools.install_async()  # first use: fetch yt-dlp in the background
+        return item
+
+    def youtube_command(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        with self.changed:
+            effect = self.player.command(action, payload)
+            if effect == "show":
+                self.state.update({"live": True, "black": False, "mode": "youtube"})
+            elif effect == "hide" and self.state.get("mode") == "youtube":
+                self.state["mode"] = "blank"
+            self._publish_youtube()
+            if action == "volume":
+                self._remember_volume()
+            return {"status": self.player.current_status(), "state": self.state}
+
+    def _remember_volume(self) -> None:
+        last_time, last_value = self._volume_saved
+        value = self.player.state["volume"]
+        if abs(value - last_value) >= 0.02 and time.time() - last_time > 1.5:
+            self._volume_saved = (time.time(), value)
+            self.settings.setdefault("youtube", {})["volume"] = round(value, 3)
+            atomic_write_json(SETTINGS_FILE, self.settings)
+
+    def youtube_report(self, payload: dict[str, Any]) -> None:
+        self.player.report(payload)
+
+    def youtube_tick(self) -> None:
+        """When the background download finishes, move a direct stream to the local file."""
+        with self.changed:
+            state = self.player.state
+            if state["mode"] != "stream" or not state["item"]:
+                return
+            if not self.settings.get("youtube", {}).get("autoSwitchToFile", True):
+                return
+            status = self.player.status
+            if status.get("srcToken") != state["srcToken"] or status.get("buffering"):
+                return
+            if self.yt_library.file_for(state["item"], state["height"]):
+                with self.player.lock:
+                    self.player._reload(float(status.get("t", 0.0)))
+                self._publish_youtube()
 
     def wait_state(self, revision: int, timeout: float = 20.0) -> dict[str, Any]:
         """Long-poll state updates so idle outputs use virtually no network/CPU."""
@@ -1717,13 +1795,19 @@ class NexStageHandler(BaseHTTPRequestHandler):
                 book = int(query.get("book", ["0"])[0])
                 chapter = int(query.get("chapter", ["0"])[0])
                 self.send_json(STORE.bible_chapter(bible_id, book, chapter), cache=False)
+            elif path == "/api/youtube":
+                self.send_json(STORE.youtube_overview(), cache=False)
+            elif path.startswith("/youtube/file/"):
+                self.serve_youtube_file(path[len("/youtube/file/") :])
+            elif path == "/youtube/stream":
+                self.handle_youtube_stream(query)
             elif path.startswith("/media/"):
                 self.serve_media(path[len("/media/") :])
             elif path.startswith("/fonts/"):
                 self.serve_font(path[len("/fonts/") :])
             else:
                 self.serve_web(path)
-        except (KeyError, IndexError, ValueError) as exc:
+        except (KeyError, IndexError, ValueError, yt.YouTubeError) as exc:
             self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
         except BrokenPipeError:
             pass
@@ -1745,6 +1829,31 @@ class NexStageHandler(BaseHTTPRequestHandler):
                 self.send_json(STORE.update_state(payload), cache=False)
             elif path == "/api/fonts/sync":
                 self.send_json(STORE.sync_fonts(), cache=False)
+            elif path == "/api/youtube/add":
+                self.send_json(STORE.youtube_add(str(payload.get("text", ""))), status=HTTPStatus.CREATED)
+            elif path == "/api/youtube/remove":
+                video_id = str(payload.get("id", ""))
+                if STORE.player.state["item"] == video_id:
+                    STORE.youtube_command("stop", {})
+                STORE.yt_library.remove(video_id)
+                self.send_json({"ok": True}, cache=False)
+            elif path == "/api/youtube/install":
+                started = STORE.yt_tools.install_async(update=bool(payload.get("update", False)))
+                self.send_json({"started": started, "tools": STORE.yt_tools.status()}, cache=False)
+            elif path == "/api/youtube/download":
+                video_id = str(payload.get("id", ""))
+                if video_id not in STORE.yt_library.items:
+                    raise KeyError("Vídeo não encontrado.")
+                height = STORE.yt_library.pick_height(video_id, int(payload.get("height", yt.DEFAULT_HEIGHT)))
+                STORE.yt_library.queue_download(video_id, height)
+                self.send_json({"ok": True, "height": height}, cache=False)
+            elif path == "/api/youtube/command":
+                self.send_json(
+                    STORE.youtube_command(str(payload.get("action", "")), payload), cache=False
+                )
+            elif path == "/api/youtube/report":
+                STORE.youtube_report(payload)
+                self.send_json({"ok": True}, cache=False)
             elif path == "/api/song/import":
                 song = parse_song_text(
                     str(payload.get("filename", "musica.txt")),
@@ -1801,7 +1910,7 @@ class NexStageHandler(BaseHTTPRequestHandler):
                 threading.Timer(0.7, _UPDATE_INSTALL_CALLBACK, args=(installer,)).start()
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
-        except (KeyError, IndexError, ValueError, json.JSONDecodeError) as exc:
+        except (KeyError, IndexError, ValueError, json.JSONDecodeError, yt.YouTubeError) as exc:
             self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
         except Exception as exc:  # pragma: no cover
             self.send_json({"error": f"Erro interno: {exc}"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -1934,6 +2043,64 @@ class NexStageHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.FORBIDDEN)
             return
         self.serve_file(target, cache_seconds=31536000, allow_range=True)
+
+    def serve_youtube_file(self, encoded_name: str) -> None:
+        name = Path(urllib.parse.unquote(encoded_name)).name
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}-\d{2,4}\.mp4", name):
+            self.send_error(HTTPStatus.FORBIDDEN)
+            return
+        # The file name never changes for the same video and height, so the browser must not cache it forever.
+        self.serve_file(STORE.yt_library.files_dir / name, cache_seconds=0, allow_range=True)
+
+    def handle_youtube_stream(self, query: dict[str, list[str]]) -> None:
+        """Direct H.264 stream while the download is not finished (audio and video are copied, not converted)."""
+        video_id = query.get("id", [""])[0]
+        if not yt.VIDEO_ID.fullmatch(video_id):
+            raise ValueError("Código de vídeo inválido.")
+        height = int(query.get("h", ["720"])[0])
+        start = max(0.0, float(query.get("t", ["0"])[0]))
+        library = STORE.yt_library
+        ffmpeg = library.tools.ffmpeg_path()
+        if not ffmpeg:
+            raise yt.YouTubeError("O ffmpeg não foi encontrado.")
+        urls = library.stream_urls(video_id, height)
+        process = None
+        first = b""
+        for fast in (True, False) if start > 0.5 else (True,):
+            process = subprocess.Popen(
+                yt.stream_command(ffmpeg, urls, start, fast_seek=fast),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                creationflags=yt.NO_WINDOW,
+            )
+            assert process.stdout is not None
+            first = process.stdout.read1(65536)
+            if first:
+                break
+            process.kill()
+            process.wait()
+        try:
+            if not first or process is None or process.stdout is None:
+                self.send_json({"error": "O YouTube não entregou o vídeo."}, status=HTTPStatus.BAD_GATEWAY)
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.close_connection = True
+            self.wfile.write(first)
+            while True:
+                chunk = process.stdout.read1(262144)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+        finally:
+            if process is not None:
+                process.kill()
+                process.wait()
 
     def serve_font(self, encoded_name: str) -> None:
         name = Path(urllib.parse.unquote(encoded_name)).name

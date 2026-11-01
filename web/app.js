@@ -39,6 +39,7 @@
     uiAccent: $("#uiAccent"), uiScale: $("#uiScale"), uiScaleOut: $("#uiScaleOut"), uiDensity: $("#uiDensity"),
     confirmDelete: $("#confirmDelete"), confirmClear: $("#confirmClear"), crossfadeMs: $("#crossfadeMs"), crossfadeOut: $("#crossfadeOut"), previewMode: $("#previewMode"),
     songShowLabels: $("#songShowLabels"), songShowCredits: $("#songShowCredits"), songCreditsFormat: $("#songCreditsFormat"),
+    ytInput: $("#ytInput"), ytAdd: $("#ytAdd"), ytTools: $("#ytTools"), ytRemote: $("#ytRemote"), ytNowTitle: $("#ytNowTitle"), ytNowInfo: $("#ytNowInfo"), ytSeek: $("#ytSeek"), ytTime: $("#ytTime"), ytDur: $("#ytDur"), ytBack: $("#ytBack"), ytPlay: $("#ytPlay"), ytFwd: $("#ytFwd"), ytVolume: $("#ytVolume"), ytVolText: $("#ytVolText"), ytMute: $("#ytMute"), ytQuality: $("#ytQuality"), ytStop: $("#ytStop"), ytCount: $("#ytCount"), ytList: $("#ytList"), ytDefaultHeight: $("#ytDefaultHeight"), ytAutoDownload: $("#ytAutoDownload"), ytAutoSwitch: $("#ytAutoSwitch"), ytUpdateTools: $("#ytUpdateTools"),
     fontCount: $("#fontCount"), fontAutoImport: $("#fontAutoImport"), fontSyncNow: $("#fontSyncNow"), fontSyncStatus: $("#fontSyncStatus"), slideDialog: $("#slideDialog"), slideDialogTitle: $("#slideDialogTitle"), slideLabel: $("#slideLabel"), slideText: $("#slideText"),
     songEditTitle: $("#songEditTitle"), songEditArtist: $("#songEditArtist"), songEditAlbum: $("#songEditAlbum"),
     aboutVersion: $("#aboutVersion"), aboutSystem: $("#aboutSystem"), aboutController: $("#aboutController"),
@@ -172,6 +173,7 @@
   function isVideo(url) { return /\.(mp4|webm|mov|m4v)(?:\?|$)/i.test(url || ""); }
 
   function switchTab(name) {
+    if (name === "youtube") ytStartPolling(); else ytStopPolling();
     $$(".rail-button").forEach(button => button.classList.toggle("active", button.dataset.tab === name));
     $$(".tab-panel").forEach(panel => panel.classList.toggle("active", panel.dataset.panel === name));
     if (name === "clock") {
@@ -499,7 +501,9 @@
   }
 
   function renderVisual(target, state, placeholder, compact = false, black = false) {
-    const content = state.mode === "clock" ? formatClockContent(state.clock) : (state.slide || {});
+    const content = state.mode === "youtube"
+      ? { label: "YOUTUBE", text: state.youtube?.title || "Vídeo do YouTube", reference: "" }
+      : state.mode === "clock" ? formatClockContent(state.clock) : (state.slide || {});
     target.label.textContent = content.label || "";
     target.text.textContent = content.text || placeholder;
     target.reference.textContent = content.reference || "";
@@ -1199,6 +1203,10 @@
     refs.clock24.checked = clock.format24 !== false; refs.clockSeconds.checked = Boolean(clock.showSeconds);
     refs.clockShowDate.checked = clock.showDate !== false; refs.clockDateFormat.value = clock.dateFormat || "long"; refs.clockLabel.value = clock.label || "";
     refs.fontAutoImport.checked = app.settings.fonts?.autoImport !== false;
+    const youtube = app.settings.youtube || {};
+    refs.ytDefaultHeight.value = String(youtube.defaultHeight || 720);
+    refs.ytAutoDownload.checked = youtube.autoDownload !== false;
+    refs.ytAutoSwitch.checked = youtube.autoSwitchToFile !== false;
     const bible = app.settings.bible || {};
     refs.bibleShowVersion.checked = bible.showVersion !== false; refs.bibleReferenceFormat.value = bible.referenceFormat || "full";
     const song = app.settings.song || {};
@@ -1403,6 +1411,245 @@
     saveSettings();
   }
 
+  // ---- YouTube: controle remoto (o vídeo só toca na projeção; aqui não há player) ----
+  function ytFormatTime(value) {
+    const total = Math.max(0, Math.floor(Number(value) || 0));
+    const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
+    return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+  }
+
+  function ytActiveTab() { return $(".tab-panel.active")?.dataset.panel === "youtube"; }
+
+  async function ytRefresh() {
+    try { app.yt = await api("/api/youtube"); renderYoutube(); } catch (_) { /* servidor reiniciando */ }
+  }
+  function ytStartPolling() { clearInterval(app.ytTimer); ytRefresh(); app.ytTimer = setInterval(ytRefresh, 600); }
+  function ytStopPolling() { clearInterval(app.ytTimer); app.ytTimer = null; }
+
+  async function ytCommand(action, extra = {}) {
+    try {
+      const result = await api("/api/youtube/command", { method: "POST", body: JSON.stringify({ action, ...extra }) });
+      app.state = result.state;
+      if (app.yt) app.yt.status = result.status;
+      updateLiveUi(); renderPreview(); renderYoutube();
+    } catch (error) { toast("YouTube", error.message); }
+  }
+
+  async function ytAddVideo(text) {
+    const value = String(text ?? refs.ytInput.value).trim();
+    if (!value) return;
+    refs.ytAdd.disabled = true;
+    try {
+      await api("/api/youtube/add", { method: "POST", body: JSON.stringify({ text: value }) });
+      refs.ytInput.value = "";
+      toast("Vídeo adicionado", "Buscando informações e baixando em segundo plano.");
+      await ytRefresh();
+    } catch (error) { toast("Não foi possível adicionar", error.message); }
+    finally { refs.ytAdd.disabled = false; }
+  }
+
+  function ytHeightsOf(id) { return (app.yt?.items || []).find(item => item.id === id)?.heights || [360, 480, 720, 1080]; }
+
+  function ytRenderTools(data) {
+    const tools = data.tools || {}, install = tools.install || {};
+    const signature = JSON.stringify([tools.ready, tools.ffmpeg, install.state, install.message, Math.floor((install.percent || 0) / 4)]);
+    if (signature === app.ytToolsSignature) return;
+    app.ytToolsSignature = signature;
+    const box = refs.ytTools;
+    if (tools.ready && install.state !== "running" && install.state !== "error") { box.hidden = true; box.replaceChildren(); return; }
+    box.hidden = false; box.className = `yt-tools${install.state === "error" ? " error" : ""}`;
+    const text = document.createElement("div");
+    const button = document.createElement("button"); button.className = "button soft"; button.type = "button";
+    if (install.state === "running") {
+      text.textContent = `${install.message || "Instalando"} (${install.percent || 0}%)`;
+      const bar = document.createElement("div"); bar.className = "bar"; const fill = document.createElement("i"); fill.style.width = `${install.percent || 0}%`; bar.append(fill);
+      box.replaceChildren(text, bar); return;
+    }
+    if (install.state === "error") text.textContent = install.message || "Falha ao instalar os componentes.";
+    else if (!tools.ffmpeg) text.textContent = "O ffmpeg não foi encontrado neste computador. Reinstale o NexStage.";
+    else text.textContent = "Para usar o YouTube, o NexStage baixa dois componentes uma única vez (cerca de 60 MB). Precisa de internet agora; depois os vídeos já baixados funcionam sem internet.";
+    button.textContent = install.state === "error" ? "Tentar de novo" : "Instalar agora";
+    button.addEventListener("click", async () => { await api("/api/youtube/install", { method: "POST", body: "{}" }).catch(error => toast("YouTube", error.message)); ytRefresh(); });
+    box.replaceChildren(text, ...(tools.ffmpeg || install.state === "error" ? [button] : []));
+  }
+
+  function ytJobPercent(item, height) { return item.jobs?.[String(height)]?.percent ?? 0; }
+
+  function ytBuildRow(item) {
+    const row = document.createElement("div"); row.className = "yt-item"; row.dataset.id = item.id;
+    const image = document.createElement("img"); image.alt = ""; image.loading = "lazy"; image.referrerPolicy = "no-referrer"; image.src = item.thumbnail || "";
+    image.addEventListener("error", () => { image.style.visibility = "hidden"; });
+    const meta = document.createElement("div"); meta.className = "yt-meta";
+    const title = document.createElement("b"); title.textContent = item.title || item.id;
+    const sub = document.createElement("small");
+    if (item.info === "pending") sub.textContent = "Buscando informações…";
+    else if (item.info === "needs-tools") sub.textContent = "Aguardando a instalação dos componentes.";
+    else if (item.info === "error") { sub.textContent = item.error || "Não foi possível ler este vídeo."; sub.className = "bad"; }
+    else sub.textContent = [item.channel, item.duration ? ytFormatTime(item.duration) : ""].filter(Boolean).join(" • ");
+    meta.append(title, sub);
+    if (item.info === "ok") {
+      const chips = document.createElement("div"); chips.className = "yt-chips";
+      (item.heights || []).forEach(height => {
+        const chip = document.createElement("span"); chip.className = "yt-chip";
+        const job = item.jobs?.[String(height)];
+        if (item.files?.[String(height)]) { chip.classList.add("done"); chip.textContent = `${height}p ✓`; chip.title = "Baixado: toca do arquivo"; }
+        else if (job && (job.state === "queued" || job.state === "running")) {
+          chip.classList.add("busy"); chip.title = "Baixando";
+          chip.append(`${height}p `); const pct = document.createElement("span"); pct.dataset.pct = `${item.id}:${height}`; pct.textContent = job.state === "queued" ? "na fila" : `${job.percent || 0}%`; chip.append(pct);
+        } else {
+          chip.textContent = `${height}p ⬇`; chip.title = job?.state === "error" ? `Falhou: ${job.error}. Clique para tentar de novo.` : "Clique para baixar esta resolução";
+          chip.addEventListener("click", async () => { await api("/api/youtube/download", { method: "POST", body: JSON.stringify({ id: item.id, height }) }).catch(error => toast("Download", error.message)); ytRefresh(); });
+        }
+        chips.append(chip);
+      });
+      meta.append(chips);
+    }
+    const actions = document.createElement("div"); actions.className = "yt-actions";
+    if (item.info === "ok" || Object.keys(item.files || {}).length) {
+      const play = document.createElement("button"); play.className = "button primary"; play.type = "button"; play.textContent = "Projetar";
+      play.addEventListener("click", () => ytCommand("load", { id: item.id }));
+      actions.append(play);
+    } else if (item.info === "error" || item.info === "needs-tools") {
+      const retry = document.createElement("button"); retry.className = "button soft"; retry.type = "button"; retry.textContent = "Tentar de novo";
+      retry.addEventListener("click", () => ytAddVideo(item.id));
+      actions.append(retry);
+    }
+    const remove = document.createElement("button"); remove.className = "button ghost icon"; remove.type = "button"; remove.title = "Remover da lista e apagar o arquivo"; remove.append(makeIcon("i-trash"));
+    remove.addEventListener("click", async () => {
+      if (!confirm(`Remover "${item.title || item.id}" e apagar os arquivos baixados?`)) return;
+      await api("/api/youtube/remove", { method: "POST", body: JSON.stringify({ id: item.id }) }).catch(error => toast("YouTube", error.message)); ytRefresh();
+    });
+    actions.append(remove); meta.append(actions);
+    row.append(image, meta);
+    return row;
+  }
+
+  function ytRenderList(data) {
+    const items = data.items || [];
+    refs.ytCount.textContent = String(items.length);
+    // A estrutura só é refeita quando algo muda de verdade; a porcentagem é atualizada no lugar (cliques não se perdem).
+    const structure = JSON.stringify(items.map(item => [item.id, item.title, item.info, item.error, item.heights, Object.keys(item.files || {}), Object.entries(item.jobs || {}).map(([h, j]) => [h, j.state])]));
+    if (structure !== app.ytListSignature) {
+      app.ytListSignature = structure;
+      if (!items.length) {
+        const empty = document.createElement("div"); empty.className = "empty-state";
+        const bold = document.createElement("b"); bold.textContent = "Nenhum vídeo ainda";
+        const hint = document.createElement("span"); hint.textContent = "Cole um link do YouTube (ou só o código de 11 letras) acima.";
+        empty.append(bold, hint); refs.ytList.replaceChildren(empty);
+      } else refs.ytList.replaceChildren(...items.map(ytBuildRow));
+    }
+    items.forEach(item => Object.entries(item.jobs || {}).forEach(([height, job]) => {
+      const node = refs.ytList.querySelector(`[data-pct="${item.id}:${height}"]`);
+      if (node) node.textContent = job.state === "queued" ? "na fila" : `${job.percent || 0}%`;
+    }));
+    refs.ytList.querySelectorAll(".yt-item").forEach(row => row.classList.toggle("playing", row.dataset.id === data.status?.item));
+  }
+
+  function ytRenderRemote(data) {
+    const status = data.status || {};
+    const hasVideo = Boolean(status.item);
+    const duration = Number(status.duration || 0);
+    refs.ytNowTitle.textContent = hasVideo ? (status.title || status.item) : "Nenhum vídeo na projeção";
+    let info = "Adicione um vídeo e clique em Projetar.", tone = "";
+    if (hasVideo) {
+      const item = (data.items || []).find(entry => entry.id === status.item);
+      const job = item?.jobs?.[String(status.height)];
+      if (!status.connected) { info = "A projeção não está respondendo. Abra o telão (botão no topo)."; tone = "warn"; }
+      else if (status.error) { info = status.error; tone = "bad"; }
+      else if (status.needsGesture) { info = "Clique uma vez na tela da projeção para liberar o som."; tone = "warn"; }
+      else {
+        const parts = [status.mode === "stream" ? "Transmissão direta" : "Arquivo local", `${status.height}p`];
+        if (status.mode === "stream" && job && (job.state === "running" || job.state === "queued")) parts.push(`baixando ${job.percent || 0}%`);
+        parts.push(status.buffering ? "carregando…" : status.ended ? "terminou" : status.playing ? "tocando" : "pausado");
+        info = parts.join(" • ");
+      }
+    }
+    refs.ytNowInfo.textContent = info; refs.ytNowInfo.className = tone;
+    [refs.ytBack, refs.ytFwd, refs.ytPlay, refs.ytStop].forEach(button => { button.disabled = !hasVideo; });
+    refs.ytSeek.disabled = !hasVideo || !duration;
+    if (!app.ytDragging) refs.ytSeek.value = String(duration ? Math.round(Math.min(1, (status.t || 0) / duration) * 1000) : 0);
+    if (!app.ytDragging) refs.ytTime.textContent = ytFormatTime(status.t || 0);
+    refs.ytDur.textContent = ytFormatTime(duration);
+    const playing = Boolean(status.wantPlaying) && !status.ended;
+    refs.ytPlay.textContent = status.ended ? "Repetir" : playing ? "Pausar" : "Reproduzir";
+    refs.ytPlay.classList.toggle("pausing", playing);
+    if (typeof status.volume === "number") {
+      if (Date.now() - (app.ytVolumeHold || 0) > 900) refs.ytVolume.value = String(Math.round(status.volume * 100));
+      refs.ytVolText.textContent = `${status.muted ? 0 : Math.round(status.volume * 100)}%`;
+      app.settings.youtube = { ...(app.settings.youtube || {}), volume: status.volume };
+    }
+    refs.ytMute.classList.toggle("on", Boolean(status.muted)); refs.ytMute.textContent = status.muted ? "Mudo ligado" : "Mudo";
+    const item = (data.items || []).find(entry => entry.id === status.item);
+    const heights = item?.heights?.length ? item.heights : [360, 480, 720, 1080];
+    const quality = JSON.stringify([status.item, status.height, heights, Object.keys(item?.files || {})]);
+    if (quality !== app.ytQualitySignature) {
+      app.ytQualitySignature = quality;
+      refs.ytQuality.replaceChildren(...heights.map(height => { const o = new Option(`${height}p${item?.files?.[String(height)] ? "  ✓ baixado" : ""}`, String(height)); return o; }));
+      if (!heights.length) refs.ytQuality.replaceChildren(new Option("—", ""));
+      refs.ytQuality.value = String(status.height || "");
+    }
+    refs.ytQuality.disabled = !hasVideo;
+  }
+
+  function renderYoutube() {
+    const data = app.yt;
+    if (!data) return;
+    ytRenderTools(data); ytRenderList(data); ytRenderRemote(data);
+  }
+
+  function ytHandleKey(event) {
+    if (event.ctrlKey || event.altKey || event.metaKey) return false;
+    const status = app.yt?.status || {};
+    if (event.key === " ") { event.preventDefault(); ytCommand("toggle"); return true; }
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      event.preventDefault(); ytCommand("seek", { delta: (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 30 : 5) }); return true;
+    }
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault(); app.ytVolumeHold = Date.now();
+      ytCommand("volume", { value: Math.max(0, Math.min(1, (status.volume ?? 0.8) + (event.key === "ArrowUp" ? 0.05 : -0.05))) }); return true;
+    }
+    if (event.key.toLowerCase() === "m") { event.preventDefault(); ytCommand("mute", { value: !status.muted }); return true; }
+    return false;
+  }
+
+  function wireYoutube() {
+    refs.ytAdd.addEventListener("click", () => ytAddVideo());
+    refs.ytInput.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); ytAddVideo(); } });
+    refs.ytInput.addEventListener("paste", () => setTimeout(() => { if (/^(https?:\/\/|www\.|youtu)/i.test(refs.ytInput.value.trim())) ytAddVideo(); }, 0));
+    refs.ytPlay.addEventListener("click", () => ytCommand("toggle"));
+    refs.ytBack.addEventListener("click", () => ytCommand("seek", { delta: -10 }));
+    refs.ytFwd.addEventListener("click", () => ytCommand("seek", { delta: 10 }));
+    refs.ytStop.addEventListener("click", () => ytCommand("stop"));
+    refs.ytMute.addEventListener("click", () => ytCommand("mute", { value: !app.yt?.status?.muted }));
+    refs.ytQuality.addEventListener("change", () => ytCommand("quality", { height: Number(refs.ytQuality.value) }));
+    refs.ytSeek.addEventListener("input", () => {
+      app.ytDragging = true;
+      refs.ytTime.textContent = ytFormatTime((Number(refs.ytSeek.value) / 1000) * Number(app.yt?.status?.duration || 0));
+    });
+    refs.ytSeek.addEventListener("change", async () => {
+      const target = (Number(refs.ytSeek.value) / 1000) * Number(app.yt?.status?.duration || 0);
+      await ytCommand("seek", { t: target });
+      app.ytDragging = false; refs.ytSeek.blur();
+    });
+    refs.ytVolume.addEventListener("input", () => {
+      app.ytVolumeHold = Date.now();
+      refs.ytVolText.textContent = `${refs.ytVolume.value}%`;
+      clearTimeout(app.ytVolumeTimer);
+      const wait = Math.max(0, 120 - (Date.now() - (app.ytVolumeLast || 0)));
+      app.ytVolumeTimer = setTimeout(() => { app.ytVolumeLast = Date.now(); ytCommand("volume", { value: Number(refs.ytVolume.value) / 100 }); }, wait);
+    });
+    refs.ytVolume.addEventListener("change", () => refs.ytVolume.blur());
+    const saveYoutubeOptions = () => {
+      app.settings.youtube = { ...(app.settings.youtube || {}), defaultHeight: Number(refs.ytDefaultHeight.value), autoDownload: refs.ytAutoDownload.checked, autoSwitchToFile: refs.ytAutoSwitch.checked };
+      saveSettings();
+    };
+    [refs.ytDefaultHeight, refs.ytAutoDownload, refs.ytAutoSwitch].forEach(control => control.addEventListener("change", saveYoutubeOptions));
+    refs.ytUpdateTools.addEventListener("click", async () => {
+      try { await api("/api/youtube/install", { method: "POST", body: JSON.stringify({ update: true }) }); toast("YouTube", "Atualizando os componentes…"); ytRefresh(); }
+      catch (error) { toast("YouTube", error.message); }
+    });
+  }
+
   function downloadJson(filename, payload) {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob); const link = document.createElement("a");
@@ -1413,7 +1660,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.4.5"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.5.0"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }
@@ -1607,6 +1854,7 @@
     $("#searchLja").addEventListener("click", searchLja); refs.ljaQuery.addEventListener("keydown", event => { if (event.key === "Enter") searchLja(); });
     $("#saveLjaPath").addEventListener("click", saveLjaPath); $("#refreshLja").addEventListener("click", refreshLjaStatus);
 
+    wireYoutube();
     refs.fontSyncNow.addEventListener("click", syncSystemFonts); refs.fontAutoImport.addEventListener("change", fontAutoImportChanged);
     $("#importFont").addEventListener("click", () => refs.fontInput.click()); refs.fontInput.addEventListener("change", event => importFontFile(event.target.files[0]));
     $("#refreshLjaBibles").addEventListener("click", async () => { await refreshLjaStatus(); toast(app.ljaBibleStatus?.available ? "Bíblias atualizadas" : "Bíblias indisponíveis", refs.ljaBibleQuickStatus.textContent); });
@@ -1670,6 +1918,7 @@
 
     addEventListener("keydown", event => {
       if (/INPUT|SELECT|TEXTAREA/.test(event.target.tagName) || refs.onlineDialog.open || refs.ljaDialog.open || refs.slideDialog.open) return;
+      if (ytActiveTab() && app.yt?.status?.item && ytHandleKey(event)) return;
       if (event.key === "/" && !event.ctrlKey && !event.altKey && !event.metaKey) { event.preventDefault(); switchTab("bible"); refs.bibleQuick.focus(); refs.bibleQuick.select(); return; }
       if ((event.key === "ArrowRight" || event.key === "ArrowLeft") && event.shiftKey && app.draftMode === "bible" && app.bibleChapter) {
         event.preventDefault(); stepBibleChapter(event.key === "ArrowRight" ? 1 : -1, { present: true }); return;

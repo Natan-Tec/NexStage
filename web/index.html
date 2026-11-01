@@ -45,6 +45,7 @@
       <button class="rail-button active" data-tab="songs"><svg><use href="#i-music"/></svg><span>Músicas</span></button>
       <button class="rail-button" data-tab="bible"><svg><use href="#i-bible"/></svg><span>Bíblia</span></button>
       <button class="rail-button" data-tab="media"><svg><use href="#i-media"/></svg><span>Mídia</span></button>
+      <button class="rail-button" data-tab="youtube"><svg><use href="#i-play"/></svg><span>YouTube</span></button>
       <button class="rail-button" data-tab="clock"><svg><use href="#i-clock"/></svg><span>Relógio</span></button>
       <span class="rail-spacer"></span>
       <button class="rail-button" data-tab="settings"><svg><use href="#i-settings"/></svg><span>Ajustes</span></button>
@@ -94,6 +95,34 @@
         <div class="media-grid" id="mediaGrid"></div>
       </section>
 
+      <section class="tab-panel" data-panel="youtube">
+        <div class="panel-heading"><div><span class="eyebrow">VÍDEOS</span><h1>YouTube</h1></div></div>
+        <div class="yt-add"><input id="ytInput" type="text" placeholder="Link ou código do vídeo" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="button primary" id="ytAdd" type="button">Adicionar</button></div>
+        <div class="yt-tools" id="ytTools" hidden></div>
+        <div class="yt-remote" id="ytRemote">
+          <div class="yt-now"><b id="ytNowTitle">Nenhum vídeo na projeção</b><small id="ytNowInfo">Adicione um vídeo e clique em Projetar.</small></div>
+          <div class="yt-seek"><input type="range" id="ytSeek" min="0" max="1000" value="0" disabled aria-label="Linha do tempo"><div class="yt-times"><span id="ytTime">0:00</span><span id="ytDur">0:00</span></div></div>
+          <div class="yt-transport">
+            <button class="yt-btn" id="ytBack" type="button" disabled>−10 s</button>
+            <button class="yt-btn big" id="ytPlay" type="button" disabled>Reproduzir</button>
+            <button class="yt-btn" id="ytFwd" type="button" disabled>+10 s</button>
+          </div>
+          <div class="yt-row"><span>Volume</span><input type="range" id="ytVolume" min="0" max="100" value="80" aria-label="Volume"><b id="ytVolText">80%</b><button class="yt-btn small" id="ytMute" type="button">Mudo</button></div>
+          <div class="yt-row"><span>Resolução</span><select id="ytQuality" disabled><option>—</option></select></div>
+          <button class="button soft full" id="ytStop" type="button" disabled>Parar vídeo</button>
+          <small class="yt-keys">Atalhos com esta aba aberta: Espaço = reproduzir/pausar • ← → = ±5 s • ↑ ↓ = volume • M = mudo</small>
+        </div>
+        <div class="section-label"><span>Vídeos</span><b id="ytCount">0</b></div>
+        <div class="yt-list" id="ytList"></div>
+        <details class="source-options"><summary>Opções do YouTube</summary>
+          <label class="field"><span>Resolução padrão ao projetar</span><select id="ytDefaultHeight"><option value="360">360p (mais leve)</option><option value="480">480p</option><option value="720">720p (recomendada)</option><option value="1080">1080p</option></select></label>
+          <label class="check-row"><input type="checkbox" id="ytAutoDownload" checked><span>Baixar ao adicionar (projeta do arquivo, sem travar)</span></label>
+          <label class="check-row"><input type="checkbox" id="ytAutoSwitch" checked><span>Trocar da transmissão para o arquivo quando terminar de baixar</span></label>
+          <button class="button soft full" id="ytUpdateTools" type="button"><svg><use href="#i-refresh"/></svg> Atualizar componentes do YouTube</button>
+          <p class="yt-note">O NexStage usa somente vídeo H.264 e áudio AAC (até 1080p), que a GT 730 decodifica pela placa de vídeo. Respeite os direitos autorais e os termos do YouTube.</p>
+        </details>
+      </section>
+
       <section class="tab-panel" data-panel="clock">
         <div class="panel-heading"><div><span class="eyebrow">UTILITÁRIO</span><h1>Relógio</h1></div></div>
         <div class="clock-card"><div id="clockPreview">20:45</div><span id="clockDate">Sábado, 22 de agosto</span></div>
@@ -134,7 +163,7 @@
 
         <div class="settings-section-label">Sobre e atualizações</div>
         <div class="settings-card about-card">
-          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.4.5</span></b><small>por Natan Gabriel</small></div></div>
+          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.5.0</span></b><small>por Natan Gabriel</small></div></div>
           <dl class="about-details">
             <div><dt>Sistema</dt><dd id="aboutSystem">Carregando…</dd></div>
             <div><dt>Controlador</dt><dd><code id="aboutController">—</code></dd></div>
