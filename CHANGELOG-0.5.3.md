@@ -1,4 +1,4 @@
-# NexStage 0.5.2
+# NexStage 0.5.3
 
 ## Barra rápida da Bíblia
 

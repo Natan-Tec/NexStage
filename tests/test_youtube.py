@@ -142,7 +142,7 @@ class BibleRefTests(unittest.TestCase):
             "console.log(JSON.stringify([f('jo 3:16'),f('jó 1'),f('1 sm 3'),f('1rs 2'),f('1jo 4')]))"
         )
         path = Path(__file__).resolve().parents[1] / "web" / "bible-ref.js"
-        out = subprocess.run(["node", "-e", script, str(path)], capture_output=True, text=True, check=True).stdout
+        out = subprocess.run(["node", "-e", script, str(path)], capture_output=True, encoding="utf-8", check=True).stdout
         self.assertEqual(json.loads(out), ["João", "Jó", "I Samuel", "I Reis", "I João"])
 
 

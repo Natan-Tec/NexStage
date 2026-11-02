@@ -1668,7 +1668,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.5.2"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.5.3"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }
