@@ -132,5 +132,19 @@ class UiContractTests(unittest.TestCase):
         self.assertIn('id="ytVideo"', (root / "obs.html").read_text(encoding="utf-8"))
 
 
+@unittest.skipUnless(shutil.which("node"), "precisa do node")
+class BibleRefTests(unittest.TestCase):
+    def test_jo_is_joao_and_numbered_abbreviations(self):
+        script = (
+            "const R=require(process.argv[1]);"
+            "const b=['I Samuel','I Reis','Jó','João','I João'].map((n,i)=>({name:n,chapterCount:50,pos:i}));"
+            "const f=t=>{const r=R.resolve(t,b);return r?b[r.pos].name:null};"
+            "console.log(JSON.stringify([f('jo 3:16'),f('jó 1'),f('1 sm 3'),f('1rs 2'),f('1jo 4')]))"
+        )
+        path = Path(__file__).resolve().parents[1] / "web" / "bible-ref.js"
+        out = subprocess.run(["node", "-e", script, str(path)], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(json.loads(out), ["João", "Jó", "I Samuel", "I Reis", "I João"])
+
+
 if __name__ == "__main__":
     unittest.main()

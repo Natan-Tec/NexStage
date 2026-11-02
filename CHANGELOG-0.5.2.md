@@ -1,4 +1,11 @@
-# NexStage 0.5.1
+# NexStage 0.5.2
+
+## Barra rápida da Bíblia
+
+- "jo 3:16" agora abre **João** (e não Jó) em Bíblias sem abreviações; "jó" com acento continua sendo Jó.
+- Abreviações de livros numerados funcionam também quando a Bíblia usa algarismos romanos ("1sm", "1rs" → I Samuel, I Reis).
+
+(Inclui o tema laranja de atualização da 0.5.1 e a aba YouTube da 0.5.0.)
 
 ## Aviso de atualização em laranja
 

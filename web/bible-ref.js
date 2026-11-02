@@ -68,6 +68,11 @@
     // 1) igual, respeitando acentos (jó ≠ jo)
     let found = pick(entries.filter(item => item.rawKeys.includes(raw)), true);
     if (found >= 0) return found;
+    // "jo" sem acento é João (Jó só quando acentuado), mesmo em Bíblias sem abreviações
+    if (q === "jo" && raw === "jo") {
+      found = pick(entries.filter(item => item.nameKey === "joao"));
+      if (found >= 0) return found;
+    }
     // 2) igual, sem acentos (em empate prefere o Novo Testamento: "jo" = João)
     found = pick(entries.filter(item => item.nameKey === q || item.abbrKeys.includes(q)), true);
     if (found >= 0) return found;
@@ -82,7 +87,7 @@
       if (found >= 0) return found;
     }
     // 5) último recurso (Bíblias sem abreviações): letras na ordem, começando pela mesma letra ("sl" → Salmos)
-    if (q.length >= 2 && /^[a-z]+$/.test(q)) {
+    if (q.length >= 2 && /^[0-9]?[a-z]+$/.test(q)) {
       const inOrder = key => {
         if (key[0] !== q[0]) return false;
         let at = 0;
