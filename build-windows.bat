@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableExtensions
-title Compilar NexStage 0.5.0
+title Compilar NexStage 0.5.1
 cd /d "%~dp0"
 
 echo.
 echo ========================================
-echo   NexStage 0.5.0 - Build para Windows
+echo   NexStage 0.5.1 - Build para Windows
 echo ========================================
 echo.
 
@@ -50,7 +50,7 @@ if errorlevel 1 goto :failure
 
 copy /Y "README.md" "dist\NexStage\README.md" >nul
 copy /Y "LICENSE.txt" "dist\NexStage\LICENSE.txt" >nul
-copy /Y "CHANGELOG-0.5.0.md" "dist\NexStage\CHANGELOG-0.5.0.md" >nul
+copy /Y "CHANGELOG-0.5.1.md" "dist\NexStage\CHANGELOG-0.5.1.md" >nul
 
 set "NXS_ISCC="
 if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "NXS_ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"

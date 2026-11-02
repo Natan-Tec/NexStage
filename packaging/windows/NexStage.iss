@@ -1,5 +1,5 @@
 #define MyAppName "NexStage"
-#define MyAppVersion "0.5.0"
+#define MyAppVersion "0.5.1"
 #define MyAppPublisher "Natan Gabriel"
 #define MyAppURL "https://github.com/Natan-Tec/NexStage"
 #define MyAppExeName "NexStage.exe"

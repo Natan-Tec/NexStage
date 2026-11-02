@@ -1,4 +1,10 @@
-# NexStage 0.5.0
+# NexStage 0.5.1
+
+## Aviso de atualização em laranja
+
+Quando existe uma versão nova, **todo o controlador** troca do azul para o laranja (nada de misturar as duas cores), o botão "Atualização disponível" aparece no topo e o ícone de Ajustes ganha um ponto pulsante. Sem atualização, o visual azul normal continua igual.
+
+(Esta versão inclui a aba YouTube da 0.5.0.)
 
 ## Vídeos do YouTube
 

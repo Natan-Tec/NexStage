@@ -44,7 +44,7 @@
     songEditTitle: $("#songEditTitle"), songEditArtist: $("#songEditArtist"), songEditAlbum: $("#songEditAlbum"),
     aboutVersion: $("#aboutVersion"), aboutSystem: $("#aboutSystem"), aboutController: $("#aboutController"),
     aboutObs: $("#aboutObs"), aboutDataPath: $("#aboutDataPath"), aboutGithub: $("#aboutGithub"),
-    updateStatus: $("#updateStatus"), checkUpdates: $("#checkUpdates"), installUpdate: $("#installUpdate"), openDataFolder: $("#openDataFolder")
+    updatePill: $("#updatePill"), updatePillText: $("#updatePillText"), updateStatus: $("#updateStatus"), checkUpdates: $("#checkUpdates"), installUpdate: $("#installUpdate"), openDataFolder: $("#openDataFolder")
   };
 
   const app = {
@@ -125,6 +125,13 @@
     }
   }
 
+  // Quando há versão nova o NexStage inteiro fica laranja e aparece um aviso no topo.
+  function setUpdateBadge(available, version) {
+    document.body.classList.toggle("update-ready", available);
+    refs.updatePill.hidden = !available;
+    if (available) refs.updatePillText.textContent = version ? `Atualização disponível • ${version}` : "Atualização disponível";
+  }
+
   async function checkForUpdates(silent = false, force = false) {
     refs.checkUpdates.disabled = true;
     if (!silent) setUpdateStatus("Consultando a release mais recente no GitHub…");
@@ -132,6 +139,7 @@
       const info = await api(`/api/update/check${force ? "?force=1" : ""}`);
       app.updateInfo = info;
       refs.installUpdate.hidden = !(info.available && info.downloadReady && info.updateSupported);
+      setUpdateBadge(Boolean(info.available), info.latestVersion);
       if (info.available) {
         const size = info.downloadSize ? ` • ${formatBytes(info.downloadSize)}` : "";
         const suffix = info.updateSupported
@@ -1660,7 +1668,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.5.0"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.5.1"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }
@@ -1862,6 +1870,7 @@
     $("#importSettings").addEventListener("click", () => refs.settingsInput.click());
     refs.settingsInput.addEventListener("change", event => importSettingsFile(event.target.files[0]));
     refs.checkUpdates.addEventListener("click", () => checkForUpdates(false, true));
+    refs.updatePill.addEventListener("click", () => switchTab("settings"));
     refs.installUpdate.addEventListener("click", installAvailableUpdate);
     refs.openDataFolder.addEventListener("click", async () => {
       try {
