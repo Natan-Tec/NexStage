@@ -1,4 +1,10 @@
-# NexStage 0.5.3
+# NexStage 0.5.4
+
+## Visual desatualizado após atualizar
+
+O navegador guardava por 1 hora o CSS/JS antigo, então logo depois de atualizar a aba YouTube aparecia sem estilo e o tema laranja não aparecia. Agora os arquivos da interface são sempre revalidados.
+
+Para ver o tema laranja sem esperar uma atualização real: abra `http://127.0.0.1:4310/?testar-atualizacao` (ajuste a porta se for outra).
 
 ## Barra rápida da Bíblia
 

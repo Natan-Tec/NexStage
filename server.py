@@ -42,7 +42,7 @@ import youtube as yt
 
 
 APP_NAME = "NexStage"
-APP_VERSION = "0.5.3"
+APP_VERSION = "0.5.4"
 APP_AUTHOR = "Natan Gabriel"
 APP_REPOSITORY = "https://github.com/Natan-Tec/NexStage"
 GITHUB_LATEST_RELEASE_API = (
@@ -2034,7 +2034,7 @@ class NexStageHandler(BaseHTTPRequestHandler):
         if WEB_DIR.resolve() not in target.parents and target != WEB_DIR.resolve():
             self.send_error(HTTPStatus.FORBIDDEN)
             return
-        self.serve_file(target, cache_seconds=0 if target.suffix == ".html" else 3600)
+        self.serve_file(target, cache_seconds=0)  # html/css/js sempre revalidados: após atualizar, nada fica com visual antigo
 
     def serve_media(self, encoded_name: str) -> None:
         name = Path(urllib.parse.unquote(encoded_name)).name

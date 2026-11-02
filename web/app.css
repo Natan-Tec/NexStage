@@ -415,7 +415,6 @@ body.update-ready .update-status[data-state="available"] { border-color: #ff8a1f
 .yt-tools[hidden], .yt-remote[hidden] { display: none !important; }
 
 /* ==== tema laranja (atualização disponível) — gerado ==== */
-body.update-ready .brand-mark { filter:drop-shadow(0 8px 12px #ff8d0545); }
 body.update-ready .button:hover { border-color:#66533a; }
 body.update-ready .button.primary { background:linear-gradient(180deg, #ff9127, #f38102); border-color:#ff9736; box-shadow:0 6px 18px #ff89052d; }
 body.update-ready .button.soft { background:#443016; color:#ffd6a5; border-color:#7d5224; }

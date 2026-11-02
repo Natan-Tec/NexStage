@@ -1668,7 +1668,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.5.3"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.5.4"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }
@@ -1958,6 +1958,7 @@
       } else refs.fontSyncStatus.textContent = app.settings.fonts?.autoImport === false ? "Importação automática desligada" : "Ainda não verificado";
       await loadAbout();
       if (app.appInfo?.updateSupported) setTimeout(() => checkForUpdates(true), 1800);
+      if (/[?&]testar-atualizacao/.test(location.search)) setUpdateBadge(true, "teste"); // pré-visualiza o visual laranja
       setInterval(updateClockPreview, 500);
     } catch (error) {
       document.body.innerHTML = `<main style="font:16px system-ui;padding:40px;color:white"><h1>NexStage não iniciou</h1><p>${String(error.message).replace(/[<>]/g, "")}</p></main>`;
