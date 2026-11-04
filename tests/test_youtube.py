@@ -120,6 +120,12 @@ class ParseTests(unittest.TestCase):
 
 
 class UiContractTests(unittest.TestCase):
+    def test_ctrl_click_verse_selection_is_wired(self):
+        js = (Path(__file__).resolve().parents[1] / "web" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("event.ctrlKey || event.metaKey", js)
+        self.assertIn("toggleBibleVerse", js)
+        self.assertIn("bibleComboSlide", js)
+
     def test_every_yt_id_used_by_the_controller_exists_in_html(self):
         import re
         root = Path(__file__).resolve().parents[1] / "web"

@@ -224,7 +224,7 @@ class UpdateTests(unittest.TestCase):
 
     def test_version_parser(self):
         self.assertEqual(server.version_numbers("v0.4.12"), (0, 4, 12))
-        self.assertGreater(server.version_numbers("0.5.4"), server.version_numbers("0.4.9"))
+        self.assertGreater(server.version_numbers("0.5.5"), server.version_numbers("0.4.9"))
 
     def test_official_release_asset_is_detected(self):
         release = {

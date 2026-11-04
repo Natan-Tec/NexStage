@@ -54,7 +54,7 @@
     videoFrameCache: new Map(), toastTimer: null, settingsTimer: null, visualTimer: null,
     bibleBooks: [], bibleChapter: null, bibleRestored: false,
     ljaStatus: null, ljaBibleStatus: null, screens: [], screenDetails: null, screenEventsBound: false, editingSlide: -1, drag: null,
-    appInfo: null, updateInfo: null
+    appInfo: null, updateInfo: null, bibleChecked: new Set()
   };
 
   const STYLE_TARGETS = {
@@ -287,7 +287,8 @@
     }
     app.deck.forEach((slide, index) => {
       const card = document.createElement("div");
-      card.className = `slide-card${index === app.currentIndex ? " active" : ""}`;
+      const checked = Boolean(slide.bible) && app.bibleChecked.has(Number(slide.bible.verse));
+      card.className = `slide-card${index === app.currentIndex && !app.bibleChecked.size ? " active" : ""}${checked ? " checked" : ""}`;
       const number = document.createElement("span"); number.className = "slide-number"; number.textContent = String(index + 1).padStart(2, "0");
       const label = document.createElement("small"); label.textContent = slide.sectionLabel || slide.label || slide.reference || "SLIDE";
       const text = document.createElement("p"); text.textContent = slide.text;
@@ -297,7 +298,11 @@
         edit.addEventListener("click", event => { event.stopPropagation(); openSlideEditor(index); });
         card.append(edit);
       }
-      card.addEventListener("click", () => presentSlide(index, true));
+      card.addEventListener("click", event => {
+        if (slide.bible && (event.ctrlKey || event.metaKey)) { event.preventDefault(); toggleBibleVerse(index); return; }
+        clearBibleChecked();
+        presentSlide(index, true);
+      });
       if (app.selectedSongId) card.addEventListener("dblclick", event => { event.preventDefault(); openSlideEditor(index); });
       refs.slidesGrid.append(card);
     });
@@ -306,7 +311,47 @@
   const PREVIEW_GRADIENT = "radial-gradient(circle at 18% 25%, #1766a3 0, transparent 32%), radial-gradient(circle at 90% 90%, #113e70 0, transparent 36%), linear-gradient(145deg, #0e2036, #070a10 65%)";
 
   function selectedSlide() {
-    return app.deck[app.currentIndex] || null;
+    return bibleComboSlide() || app.deck[app.currentIndex] || null;
+  }
+
+  // Ctrl+clique marca versículos soltos; os marcados aparecem juntos na tela (ex.: "João 3:16,18-20").
+  function bibleComboSlide() {
+    const chapter = app.bibleChapter;
+    if (app.draftMode !== "bible" || !chapter || !app.bibleChecked.size) return null;
+    const picked = chapter.verses.filter(verse => app.bibleChecked.has(Number(verse.number)));
+    if (!picked.length) return null;
+    const numbers = picked.map(verse => Number(verse.number));
+    const runs = [];
+    numbers.forEach(number => {
+      const last = runs[runs.length - 1];
+      if (last && number === last[1] + 1) last[1] = number; else runs.push([number, number]);
+    });
+    const span = runs.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(",");
+    const compact = refs.bibleReferenceFormat.value === "compact";
+    const shortBook = chapter.bookAbbreviation || String(chapter.book).split(/\s+/)[0].slice(0, 2);
+    return {
+      text: picked.length === 1 ? picked[0].text : picked.map(verse => `${verse.number} ${verse.text}`).join(" "),
+      label: refs.bibleShowVersion.checked ? chapter.bible : "",
+      reference: compact ? `${shortBook} ${chapter.chapter}.${span}` : `${chapter.book} ${chapter.chapter}:${span}`
+    };
+  }
+
+  function clearBibleChecked() {
+    if (!app.bibleChecked.size) return false;
+    app.bibleChecked.clear();
+    return true;
+  }
+
+  function toggleBibleVerse(index) {
+    const slide = app.deck[index];
+    const number = Number(slide?.bible?.verse);
+    if (!number) return;
+    if (app.bibleChecked.has(number)) app.bibleChecked.delete(number); else app.bibleChecked.add(number);
+    if (app.bibleChecked.size) {
+      app.currentIndex = index;
+      presentSlide(index, true);
+      toast("Versículos marcados", `${app.bibleChecked.size} na tela. Ctrl+clique para marcar ou desmarcar; clique normal volta ao modo comum.`);
+    } else presentSlide(index, true);
   }
 
   function songCredit(song) {
@@ -835,6 +880,7 @@
         ? await api(`/api/louvorja/bible/chapter?version=${encodeURIComponent(source.id)}&book=${encodeURIComponent(refs.bookSelect.value)}&chapter=${encodeURIComponent(refs.chapterSelect.value)}`)
         : await api(`/api/bible/${encodeURIComponent(source.id)}/chapter?book=${refs.bookSelect.value}&chapter=${refs.chapterSelect.value}`);
       app.selectedSongId = "";
+      clearBibleChecked();
       app.bibleChapter = chapter;
       fillVerseSelects(Number(verse) || 0, Number(to) || 0);
       buildBibleDeck();
@@ -868,6 +914,7 @@
   // Versículo, "até" ou "juntar" mudou: remonta os slides sem recarregar o capítulo.
   function applyBibleSelection() {
     if (!app.bibleChapter) return;
+    clearBibleChecked();
     refs.bibleJoin.disabled = !bibleIsRange();
     buildBibleDeck();
     app.selectedSongId = ""; app.draftMode = "bible";
@@ -890,6 +937,7 @@
 
   // Setas e botões: troca de versículo; no fim do capítulo, segue para o próximo (e volta ao anterior no começo).
   async function stepSlide(direction) {
+    clearBibleChecked();
     if (app.draftMode === "bible" && app.bibleChapter && !bibleIsRange()) {
       const next = app.currentIndex + direction;
       if (next >= app.deck.length && await stepBibleChapter(1, { present: true })) return;
@@ -1668,7 +1716,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.5.4"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.5.5"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }

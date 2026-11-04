@@ -1,4 +1,8 @@
-# NexStage 0.5.4
+# NexStage 0.5.5
+
+## Versículos soltos com Ctrl+clique
+
+Na aba Bíblia, segure **Ctrl** (ou ⌘ no Mac) e clique nos versículos para marcar vários, mesmo separados. Os marcados vão juntos para a tela, com a referência agrupada (ex.: "João 3:2,4-5"), e cada novo Ctrl+clique atualiza ao vivo. Clique normal, setas, trocar capítulo ou versículo voltam ao modo comum.
 
 ## Visual desatualizado após atualizar
 

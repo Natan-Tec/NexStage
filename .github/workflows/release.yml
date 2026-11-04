@@ -1,6 +1,6 @@
 name: Compilar e publicar o instalador
 
-# Envie uma tag como v0.5.4 para compilar tudo e publicar a release com:
+# Envie uma tag como v0.5.5 para compilar tudo e publicar a release com:
 #   NexStage-Setup.exe              (Windows)
 #   NexStage-Linux-x64.tar.gz       (Linux 64 bits)
 #   NexStage-macOS-AppleSilicon.dmg (Mac com chip M1/M2/M3/M4)

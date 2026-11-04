@@ -18,7 +18,7 @@ from typing import Any
 
 
 APP_NAME = "NexStage"
-APP_VERSION = "0.5.4"
+APP_VERSION = "0.5.5"
 MUTEX_NAME = "Local\\NexStage_NatanGabriel"
 ERROR_ALREADY_EXISTS = 183
 WM_ICON_INFORMATION = 0x40
