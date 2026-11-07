@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 import threading
 import time
 import urllib.error
@@ -358,6 +359,29 @@ def probe_video(ffmpeg: str, path: Path) -> dict[str, Any]:
     return {"codec": match.group(1).lower() if match else "", "fps": float(fps.group(1)) if fps else 0.0}
 
 
+LOCAL_SUFFIXES = {".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi", ".wmv", ".flv", ".mpg", ".mpeg", ".ts", ".m2ts", ".3gp"}
+BROWSER_AUDIO = {"aac", "mp3"}
+
+
+def probe_media(ffmpeg: str, path: Path) -> dict[str, Any]:
+    """Duration, resolution, frame rate and codecs of a local file, read from `ffmpeg -i`."""
+    code, out, err = run_capture([ffmpeg, "-hide_banner", "-i", str(path)], 90)
+    text = err + out
+    video = re.search(r"Video:\s*([A-Za-z0-9_]+)", text)
+    audio = re.search(r"Audio:\s*([A-Za-z0-9_]+)", text)
+    size = re.search(r",\s*(\d{2,5})x(\d{2,5})[\s,\[]", text)
+    fps = re.search(r"(\d+(?:\.\d+)?)\s*fps", text)
+    duration = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
+    seconds = 0.0
+    if duration:
+        seconds = int(duration.group(1)) * 3600 + int(duration.group(2)) * 60 + float(duration.group(3))
+    return {
+        "vcodec": video.group(1).lower() if video else "", "acodec": audio.group(1).lower() if audio else "",
+        "width": int(size.group(1)) if size else 0, "height": int(size.group(2)) if size else 0,
+        "fps": float(fps.group(1)) if fps else 0.0, "duration": seconds,
+    }
+
+
 class YouTubeLibrary:
     """Videos added by the operator, their files and the background downloads."""
 
@@ -389,6 +413,8 @@ class YouTubeLibrary:
             data = json.loads(self.index_path.read_text(encoding="utf-8"))
             for item in data.get("items", []):
                 if VIDEO_ID.fullmatch(str(item.get("id", ""))):
+                    if item.get("kind") == "local" and item.get("info") == "pending":
+                        item.update({"info": "error", "error": "O programa foi fechado durante a preparação. Adicione o vídeo de novo."})
                     self.items[item["id"]] = item
         except (FileNotFoundError, OSError, ValueError, AttributeError):
             self.items = {}
@@ -510,6 +536,114 @@ class YouTubeLibrary:
             with self.lock:
                 if video_id in self.items:
                     self.items[video_id].update({"info": "error", "error": str(exc)})
+
+    # -- local videos (files already on the computer)
+    def add_local(self, source: Path, original_name: str) -> dict[str, Any]:
+        """Register a copied file and prepare it (H.264/AAC mp4 + thumbnail) in the background."""
+        video_id = "L" + uuid.uuid4().hex[:10]
+        stem = Path(original_name).stem.replace("_", " ").strip() or "Vídeo"
+        item = {
+            "id": video_id, "kind": "local", "title": stem[:200], "channel": "", "duration": 0, "heights": [],
+            "thumbnail": "", "addedAt": int(time.time()), "info": "pending", "error": "", "note": "Preparando…",
+        }
+        with self.lock:
+            self.items[video_id] = item
+        self._save()
+        threading.Thread(target=self._process_local, args=(video_id, source), name="NexStageLocalVideo", daemon=True).start()
+        return item
+
+    def _fail_local(self, video_id: str, message: str) -> None:
+        with self.lock:
+            if video_id in self.items:
+                self.items[video_id].update({"info": "error", "error": message})
+        self._save()
+
+    def _process_local(self, video_id: str, source: Path) -> None:
+        workdir = source.parent
+        job: dict[str, Any] | None = None
+        try:
+            ffmpeg = self.tools.ffmpeg_path()
+            if not ffmpeg:
+                raise YouTubeError("O ffmpeg não foi encontrado. Reinstale o NexStage.")
+            info = probe_media(ffmpeg, source)
+            if not info["vcodec"] or not info["height"]:
+                raise YouTubeError("Este arquivo não parece ser um vídeo válido.")
+            target_height = max(144, min(MAX_HEIGHT, info["height"]))
+            self.files_dir.mkdir(parents=True, exist_ok=True)
+            final = self.files_dir / f"{video_id}-{target_height}.mp4"
+            audio_ok = info["acodec"] in BROWSER_AUDIO or not info["acodec"]
+            codecs_ok = info["vcodec"] == "h264" and audio_ok and info["height"] <= MAX_HEIGHT
+            job = {"state": "running", "percent": 0, "error": "", "cancel": threading.Event()}
+            with self.lock:
+                self.jobs[(video_id, target_height)] = job
+            if codecs_ok and source.suffix.lower() == ".mp4":
+                os.replace(source, final)
+                note = "H.264 pronto (sem converter)"
+            elif codecs_ok:
+                self._run_ffmpeg([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(source), "-map", "0:v:0", "-map", "0:a:0?",
+                                  "-c", "copy", "-movflags", "+faststart", str(workdir / "out.mp4")], info["duration"], job)
+                os.replace(workdir / "out.mp4", final)
+                note = "H.264 pronto (só reempacotado)"
+            else:
+                with self.lock:
+                    self.items[video_id]["note"] = "Convertendo para H.264…"
+                self._run_ffmpeg([
+                    ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(source), "-map", "0:v:0", "-map", "0:a:0?",
+                    "-vf", f"scale=-2:'min(ih,{MAX_HEIGHT})',format=yuv420p",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-profile:v", "high", "-level", "4.1",
+                    "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-movflags", "+faststart", str(workdir / "out.mp4"),
+                ], info["duration"], job)
+                os.replace(workdir / "out.mp4", final)
+                note = "Convertido para H.264"
+            thumb = self.files_dir / f"{video_id}-thumb.jpg"
+            at = max(0.0, min(5.0, info["duration"] / 3))
+            run_capture([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{at:.2f}", "-i", str(final), "-frames:v", "1", "-vf", "scale=320:-2", str(thumb)], 60)
+            with self.lock:
+                if video_id not in self.items:  # removed while preparing
+                    final.unlink(missing_ok=True)
+                    thumb.unlink(missing_ok=True)
+                    return
+                self.items[video_id].update({
+                    "duration": int(info["duration"]), "heights": [target_height], "info": "ok", "error": "", "note": note,
+                    "thumbnail": f"/youtube/file/{thumb.name}" if thumb.is_file() else "",
+                })
+                job["state"], job["percent"] = "done", 100
+            self._save()
+        except YouTubeError as exc:
+            self._fail_local(video_id, str(exc))
+            if job:
+                job["state"], job["error"] = "error", str(exc)
+        except Exception as exc:  # noqa: BLE001 - never leave the item pending forever
+            self._fail_local(video_id, f"Falha ao preparar o vídeo: {exc}")
+            if job:
+                job["state"], job["error"] = "error", str(exc)
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+
+    @staticmethod
+    def _run_ffmpeg(command: list[str], duration: float, job: dict[str, Any]) -> None:
+        """Run ffmpeg and map its progress to job['percent'] (0-98)."""
+        command = command[:-1] + ["-progress", "pipe:1", "-nostats", command[-1]]
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        assert process.stdout is not None
+        tail: list[str] = []
+        for raw in iter(process.stdout.readline, b""):
+            line = raw.decode("utf-8", "replace").strip()
+            if job["cancel"].is_set():
+                process.kill()
+                process.wait()
+                raise YouTubeError("Cancelado.")
+            if line.startswith("out_time_us=") and duration:
+                try:
+                    job["percent"] = int(max(0, min(98, int(line.split("=")[1]) / 1_000_000 / duration * 98)))
+                except ValueError:
+                    pass
+            elif line and "=" not in line:
+                tail.append(line)
+                tail = tail[-6:]
+        process.wait()
+        if process.returncode != 0:
+            raise YouTubeError("Não foi possível preparar este vídeo: " + (" ".join(tail)[-160:] or "erro no ffmpeg"))
 
     # -- downloads
     def queue_download(self, video_id: str, height: int) -> None:
@@ -667,6 +801,7 @@ class YouTubeLibrary:
             self.queue = [key for key in self.queue if key[0] != video_id]
         for path in self.files(video_id).values():
             path.unlink(missing_ok=True)
+        (self.files_dir / f"{video_id}-thumb.jpg").unlink(missing_ok=True)
         self._save()
 
     def snapshot(self) -> list[dict[str, Any]]:
@@ -682,6 +817,7 @@ class YouTubeLibrary:
                 }
                 result.append({
                     **{k: item.get(k) for k in ("id", "title", "channel", "duration", "thumbnail", "info", "error")},
+                    "kind": item.get("kind", "youtube"), "note": item.get("note", ""),
                     "heights": self.available_heights(video_id),
                     "files": files, "jobs": jobs,
                 })
@@ -781,6 +917,8 @@ class PlayerController:
         library = self.library
         height = library.pick_height(video_id, height)
         path = library.file_for(video_id, height)
+        if library.items.get(video_id, {}).get("kind") == "local" and not path:
+            raise YouTubeError("O arquivo deste vídeo não foi encontrado. Adicione-o de novo.")
         if path:
             return {"mode": "file", "src": f"/youtube/file/{path.name}", "height": height, "message": ""}
         if library.tools.ready():

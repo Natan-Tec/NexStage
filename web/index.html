@@ -46,8 +46,8 @@
     <nav class="rail" aria-label="Fontes">
       <button class="rail-button active" data-tab="songs"><svg><use href="#i-music"/></svg><span>Músicas</span></button>
       <button class="rail-button" data-tab="bible"><svg><use href="#i-bible"/></svg><span>Bíblia</span></button>
-      <button class="rail-button" data-tab="media"><svg><use href="#i-media"/></svg><span>Mídia</span></button>
-      <button class="rail-button" data-tab="youtube"><svg><use href="#i-play"/></svg><span>YouTube</span></button>
+      <button class="rail-button" data-tab="media"><svg><use href="#i-media"/></svg><span>Fundos</span></button>
+      <button class="rail-button" data-tab="youtube"><svg><use href="#i-play"/></svg><span>Vídeos</span></button>
       <button class="rail-button" data-tab="clock"><svg><use href="#i-clock"/></svg><span>Relógio</span></button>
       <button class="rail-button" data-tab="timer"><svg><use href="#i-timer"/></svg><span>Cronômetro</span></button>
       <span class="rail-spacer"></span>
@@ -92,16 +92,23 @@
       </section>
 
       <section class="tab-panel" data-panel="media">
-        <div class="panel-heading"><div><span class="eyebrow">BACKS E LOGOS</span><h1>Mídia</h1></div><button class="icon-button" id="importMedia" title="Importar mídia"><svg><use href="#i-upload"/></svg></button></div>
+        <div class="panel-heading"><div><span class="eyebrow">BACKS E LOGOS</span><h1>Fundos</h1></div><button class="icon-button" id="importMedia" title="Importar mídia"><svg><use href="#i-upload"/></svg></button></div>
         <div class="upload-drop" id="mediaDrop"><svg><use href="#i-upload"/></svg><b>Solte vídeos ou imagens</b><small>MP4 H.264 recomendado</small><div class="upload-progress"><i id="uploadBar"></i></div></div>
         <div class="section-label"><span>Arquivos locais</span><b id="mediaCount">0</b></div>
         <div class="media-grid" id="mediaGrid"></div>
       </section>
 
       <section class="tab-panel" data-panel="youtube">
-        <div class="panel-heading"><div><span class="eyebrow">VÍDEOS</span><h1>YouTube</h1></div></div>
+        <div class="panel-heading"><div><span class="eyebrow">TELA CHEIA COM ÁUDIO</span><h1>Vídeos</h1></div></div>
+        <div class="yt-source" role="tablist"><button type="button" class="on" id="ytSrcLocal">Do computador</button><button type="button" id="ytSrcYoutube">YouTube</button></div>
+        <div class="yt-local" id="ytLocalBox">
+          <div class="upload-drop yt-drop" id="ytLocalDrop"><svg><use href="#i-upload"/></svg><b>Escolha ou solte vídeos aqui</b><small>MP4, MOV, MKV, WebM, AVI… O NexStage prepara em H.264 sozinho</small><div class="upload-progress"><i id="ytLocalBar"></i></div></div>
+          <input type="file" id="ytLocalInput" accept="video/*,.mkv,.avi,.wmv,.flv,.ts,.m2ts,.mpg,.mpeg,.3gp" hidden multiple>
+        </div>
+        <div id="ytYoutubeBox" hidden>
         <div class="yt-add"><input id="ytInput" type="text" placeholder="Link ou código do vídeo" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="button primary" id="ytAdd" type="button">Adicionar</button></div>
         <div class="yt-tools" id="ytTools" hidden></div>
+        </div>
         <div class="yt-remote" id="ytRemote">
           <div class="yt-now"><b id="ytNowTitle">Nenhum vídeo na projeção</b><small id="ytNowInfo">Adicione um vídeo e clique em Projetar.</small></div>
           <div class="yt-seek"><input type="range" id="ytSeek" min="0" max="1000" value="0" disabled aria-label="Linha do tempo"><div class="yt-times"><span id="ytTime">0:00</span><span id="ytDur">0:00</span></div></div>
@@ -115,9 +122,9 @@
           <button class="button soft full" id="ytStop" type="button" disabled>Parar vídeo</button>
           <small class="yt-keys">Atalhos com esta aba aberta: Espaço = reproduzir/pausar • ← → = ±5 s • ↑ ↓ = volume • M = mudo</small>
         </div>
-        <div class="section-label"><span>Vídeos</span><b id="ytCount">0</b></div>
+        <div class="section-label"><span id="ytListLabel">Vídeos do computador</span><b id="ytCount">0</b></div>
         <div class="yt-list" id="ytList"></div>
-        <details class="source-options"><summary>Opções do YouTube</summary>
+        <details class="source-options" id="ytOptions"><summary>Opções dos vídeos</summary>
           <label class="field"><span>Resolução padrão ao projetar</span><select id="ytDefaultHeight"><option value="360">360p (mais leve)</option><option value="480">480p</option><option value="720">720p (recomendada)</option><option value="1080">1080p</option></select></label>
           <label class="check-row"><input type="checkbox" id="ytAutoDownload" checked><span>Baixar ao adicionar (projeta do arquivo, sem travar)</span></label>
           <label class="check-row"><input type="checkbox" id="ytAutoSwitch" checked><span>Trocar da transmissão para o arquivo quando terminar de baixar</span></label>
@@ -186,7 +193,7 @@
 
         <div class="settings-section-label">Sobre e atualizações</div>
         <div class="settings-card about-card">
-          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.7.0</span></b><small>por Natan Gabriel</small></div></div>
+          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.8.0</span></b><small>por Natan Gabriel</small></div></div>
           <dl class="about-details">
             <div><dt>Sistema</dt><dd id="aboutSystem">Carregando…</dd></div>
             <div><dt>Controlador</dt><dd><code id="aboutController">—</code></dd></div>
@@ -257,7 +264,7 @@
     <aside class="inspector">
       <div class="inspector-title"><svg><use href="#i-settings"/></svg><div><b>Visual da saída</b><small id="inspectorContext">Música</small></div></div>
       <div class="inspector-scroll">
-        <div class="control-group"><label>Fundo</label><button class="media-picker" id="backgroundPicker"><span id="backgroundSwatch"></span><div><b id="backgroundName">Gradiente padrão</b><small>Clique para escolher em Mídia</small></div><svg><use href="#i-chevron"/></svg></button><button class="text-button subtle" id="clearBackground">Remover fundo selecionado</button></div>
+        <div class="control-group"><label>Fundo</label><button class="media-picker" id="backgroundPicker"><span id="backgroundSwatch"></span><div><b id="backgroundName">Gradiente padrão</b><small>Clique para escolher em Fundos</small></div><svg><use href="#i-chevron"/></svg></button><button class="text-button subtle" id="clearBackground">Remover fundo selecionado</button></div>
         <div class="control-group"><label>Logo / sobreposição</label><button class="media-picker" id="overlayPicker"><span class="logo-swatch"><svg><use href="#i-logo"/></svg></span><div><b id="overlayName">Nenhuma logo</b><small>PNG transparente recomendado</small></div><svg><use href="#i-chevron"/></svg></button><button class="text-button subtle" id="clearOverlay">Remover logo</button></div>
         <div class="control-group"><label>Elemento</label><select id="styleTarget"><option value="song.text">Letra da música</option><option value="song.label">Rótulo da seção</option></select></div>
         <div class="control-group two font-size-control"><label><span>Tamanho</span><span class="pixel-input"><input type="number" id="fontSizeNumber" min="1" step="1" value="64" inputmode="numeric" aria-label="Tamanho personalizado em pixels"><i>px</i></span></label><input type="range" id="fontSize" min="12" max="160" value="64"><small>Use a caixa para qualquer valor acima da barra.</small></div>

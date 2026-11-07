@@ -42,7 +42,7 @@ import youtube as yt
 
 
 APP_NAME = "NexStage"
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"
 APP_AUTHOR = "Natan Gabriel"
 APP_REPOSITORY = "https://github.com/Natan-Tec/NexStage"
 GITHUB_LATEST_RELEASE_API = (
@@ -1857,6 +1857,9 @@ class NexStageHandler(BaseHTTPRequestHandler):
             if path == "/api/font/upload":
                 self.handle_font_upload()
                 return
+            if path == "/api/video-local/upload":
+                self.handle_local_video_upload()
+                return
             payload = self.read_json_body()
             if path == "/api/state":
                 self.send_json(STORE.update_state(payload), cache=False)
@@ -2007,6 +2010,33 @@ class NexStageHandler(BaseHTTPRequestHandler):
         item = next(item for item in list_media() if item["name"] == target.name)
         self.send_json(item, status=HTTPStatus.CREATED)
 
+    def handle_local_video_upload(self) -> None:
+        """Copy a video from the computer into the app (streamed), then prepare it in the background."""
+        length = int(self.headers.get("Content-Length", "0"))
+        filename = urllib.parse.unquote(self.headers.get("X-Filename", "video.mp4"))
+        suffix = Path(filename).suffix.lower()
+        if suffix not in yt.LOCAL_SUFFIXES:
+            raise ValueError("Formato de vídeo não aceito. Use MP4, MOV, MKV, WebM, AVI, WMV, MPG ou TS.")
+        if length <= 0 or length > 24 * 1024 * 1024 * 1024:
+            raise ValueError("Arquivo vazio ou maior que 24 GB.")
+        library = STORE.yt_library
+        library.files_dir.mkdir(parents=True, exist_ok=True)
+        workdir = Path(tempfile.mkdtemp(prefix=".tmp-up-", dir=library.files_dir))
+        source = workdir / f"original{suffix}"
+        remaining = length
+        try:
+            with source.open("wb") as output:
+                while remaining:
+                    chunk = self.rfile.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise ConnectionError("Upload interrompido")
+                    output.write(chunk)
+                    remaining -= len(chunk)
+        except Exception:
+            shutil.rmtree(workdir, ignore_errors=True)
+            raise
+        self.send_json(library.add_local(source, filename), status=HTTPStatus.CREATED)
+
     def handle_font_upload(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         filename = urllib.parse.unquote(self.headers.get("X-Filename", "fonte"))
@@ -2085,7 +2115,7 @@ class NexStageHandler(BaseHTTPRequestHandler):
 
     def serve_youtube_file(self, encoded_name: str) -> None:
         name = Path(urllib.parse.unquote(encoded_name)).name
-        if not re.fullmatch(r"[A-Za-z0-9_-]{11}-\d{2,4}\.mp4", name):
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}-(\d{2,4}\.mp4|thumb\.jpg)", name):
             self.send_error(HTTPStatus.FORBIDDEN)
             return
         # The file name never changes for the same video and height, so the browser must not cache it forever.

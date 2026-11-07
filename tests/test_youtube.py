@@ -97,6 +97,31 @@ class PipelineTests(unittest.TestCase):
         self.assertGreater(len(out), 1000)
         self.assertIn(b"ftyp", out[:64])
 
+    def test_local_video_is_prepared_as_h264_and_played_from_file(self):
+        mkv = self.tmp / "clip.mkv"
+        subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=2",
+                        "-f", "lavfi", "-i", "sine=duration=2", "-c:v", "mpeg4", "-c:a", "libmp3lame", "-shortest", str(mkv)], check=True)
+        work = self.tmp / "up"
+        work.mkdir()
+        original = work / "original.mkv"
+        shutil.copy(mkv, original)
+        item = self.library.add_local(original, "Meu Louvor_ao vivo.mkv")
+        video_id = item["id"]
+        self.assertTrue(yt.VIDEO_ID.fullmatch(video_id))
+        self.assertTrue(wait(lambda: self.library.items[video_id]["info"] == "ok"))
+        done = self.library.items[video_id]
+        self.assertEqual(done["title"], "Meu Louvor ao vivo")
+        self.assertEqual(done["heights"], [240])
+        self.assertEqual(done["note"], "Convertido para H.264")
+        final = self.library.file_for(video_id, 240)
+        self.assertEqual(yt.probe_media(FFMPEG, final)["vcodec"], "h264")
+        self.assertEqual(self.player.command("load", {"id": video_id}), "show")
+        self.assertEqual(self.player.state["mode"], "file")
+        snapshot = next(entry for entry in self.library.snapshot() if entry["id"] == video_id)
+        self.assertEqual(snapshot["kind"], "local")
+        self.library.remove(video_id)
+        self.assertEqual(self.library.files(video_id), {})
+
     def test_remove_deletes_files(self):
         self.library.add(VID)
         self.assertTrue(wait(lambda: self.library.file_for(VID, 720) is not None))

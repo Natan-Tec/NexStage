@@ -1,4 +1,11 @@
-# NexStage 0.7.0
+# NexStage 0.8.0
+
+## Vídeos do computador, em tela cheia e com áudio
+
+- A aba **YouTube** virou **Vídeos**, com dois jeitos de adicionar: **Do computador** (escolha ou solte arquivos) e **YouTube**. Os controles são os mesmos: reproduzir/pausar, linha do tempo, ±10 s, volume, mudo e parar, tudo no controlador (o vídeo toca só na projeção, em tela cheia, com som).
+- Ao adicionar, o NexStage copia o arquivo e deixa em **H.264 + AAC (até 1080p)**: se já estiver assim, usa direto; se só o contêiner for diferente (MOV…), reempacota sem perder qualidade; senão converte, com barra de progresso. Isso mantém a reprodução leve em placas simples como a GT 730.
+- Formatos aceitos: MP4, MOV, MKV, WebM, AVI, WMV, MPG, TS e outros.
+- A aba **Mídia** agora se chama **Fundos** (é onde ficam os fundos em vídeo/imagem e logos).
 
 ## Melhorias nas letras
 
