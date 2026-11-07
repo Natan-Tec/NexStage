@@ -159,6 +159,13 @@
         reference: all.clock?.date || legacyStyle(theme, { fontSize: 28, y: 72 })
       };
     }
+    if (state.mode === "timer") {
+      return {
+        label: all.timer?.label || legacyStyle(theme, { fontSize: 26, y: 16 }),
+        lyrics: all.timer?.time || legacyStyle(theme, { fontSize: 130, fontWeight: 300, y: 36 }),
+        reference: all.timer?.countdown || legacyStyle(theme, { fontSize: 150, fontWeight: 300, y: 68 })
+      };
+    }
     if (state.mode === "bible") {
       return {
         label: all.bible?.version || legacyStyle(theme, { fontSize: 22, y: 20 }),
@@ -224,10 +231,45 @@
     }
   }
 
+  // Cronômetro de culto: hora atual em cima, tempo restante embaixo (até um horário ou por duração fixa).
+  function timerRemaining(timer, now) {
+    if (timer.mode === "duration") {
+      const total = Math.max(1, Number(timer.durationMin) || 0) * 60;
+      if (!timer.running || !timer.startedAt) return total;
+      return Math.max(0, total - Math.floor((now.getTime() - Number(timer.startedAt)) / 1000));
+    }
+    const [hours, minutes] = String(timer.endTime || "00:00").split(":").map(Number);
+    const end = new Date(now);
+    end.setHours(hours || 0, minutes || 0, 0, 0);
+    if (end.getTime() - now.getTime() < -12 * 3600 * 1000) end.setDate(end.getDate() + 1);
+    return Math.max(0, Math.ceil((end.getTime() - now.getTime()) / 1000));
+  }
+
+  function formatRemaining(seconds) {
+    const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
+    const two = value => String(value).padStart(2, "0");
+    return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${two(m)}:${two(s)}`;
+  }
+
+  function formatTimer(state) {
+    const timer = state.timer || {};
+    const now = new Date();
+    elements.lyrics.textContent = new Intl.DateTimeFormat("pt-BR", {
+      hour: "2-digit", minute: "2-digit", second: timer.showSeconds === false ? undefined : "2-digit", hour12: timer.format24 === false
+    }).format(now);
+    elements.label.textContent = timer.label || "";
+    const remaining = timerRemaining(timer, now);
+    elements.reference.textContent = remaining === 0 && timer.hideAtZero ? "" : formatRemaining(remaining);
+  }
+
+  function tickClock(state) {
+    if (state.mode === "timer") formatTimer(state); else formatClock(state);
+  }
+
   function startClock(state) {
     clearInterval(clockTimer);
-    formatClock(state);
-    clockTimer = setInterval(() => formatClock(currentState || state), 250);
+    tickClock(state);
+    clockTimer = setInterval(() => tickClock(currentState || state), 250);
   }
 
   function stopClock() {
@@ -236,7 +278,7 @@
   }
 
   function fitText() {
-    if (currentState?.mode === "clock") return;
+    if (currentState?.mode === "clock" || currentState?.mode === "timer") return;
     const style = stylesForState(currentState).lyrics;
     const scale = Math.max(0.55, innerHeight / 1080);
     let size = Math.round((style.fontSize || 64) * scale);
@@ -361,10 +403,12 @@
     setTheme(state);
     setBackground(state.background, state.videoCrossfadeMs || 450);
 
-    const isClock = state.mode === "clock";
-    body.classList.toggle("mode-clock", isClock);
+    const isTimer = state.mode === "timer";
+    const isClock = state.mode === "clock" || isTimer;
+    body.classList.toggle("mode-clock", state.mode === "clock");
+    body.classList.toggle("mode-timer", isTimer);
     if (isClock) {
-      if (!clockTimer) startClock(state); else formatClock(state);
+      if (!clockTimer) startClock(state); else tickClock(state);
     } else {
       stopClock();
       elements.label.textContent = state.slide?.label || "";

@@ -119,6 +119,24 @@ class ParseTests(unittest.TestCase):
         self.assertNotIn("vp9", selector.lower())
 
 
+class TimerTests(unittest.TestCase):
+    def test_timer_defaults_and_independent_styles(self):
+        import server
+        self.assertEqual(server.DEFAULT_STATE["timer"]["mode"], "endTime")
+        styles = server.DEFAULT_STYLES["timer"]
+        self.assertEqual(set(styles), {"label", "time", "countdown"})
+        self.assertNotEqual(styles["time"]["textColor"], styles["countdown"]["textColor"])
+        merged = server.deep_merge(server.DEFAULT_STYLES, {"timer": {"countdown": {"fontSize": 99}}})
+        self.assertEqual(merged["timer"]["countdown"]["fontSize"], 99)
+        self.assertEqual(merged["timer"]["time"]["fontSize"], styles["time"]["fontSize"])
+
+    def test_timer_is_wired_in_ui_and_output(self):
+        web = Path(__file__).resolve().parents[1] / "web"
+        self.assertIn('data-panel="timer"', (web / "index.html").read_text(encoding="utf-8"))
+        self.assertIn('state.mode === "timer"', (web / "output.js").read_text(encoding="utf-8"))
+        self.assertIn("timer.countdown", (web / "app.js").read_text(encoding="utf-8"))
+
+
 class UiContractTests(unittest.TestCase):
     def test_ctrl_click_verse_selection_is_wired(self):
         js = (Path(__file__).resolve().parents[1] / "web" / "app.js").read_text(encoding="utf-8")

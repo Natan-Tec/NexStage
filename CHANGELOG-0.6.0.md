@@ -1,4 +1,8 @@
-# NexStage 0.5.5
+# NexStage 0.6.0
+
+## Cronômetro de culto (nova aba)
+
+Hora atual em cima e, embaixo, o **tempo restante** até a hora de término ou por **duração fixa** (que começa em "Ligar contagem"). Hora, regressiva e texto auxiliar têm **fonte, cor, tamanho e posição independentes** no menu da direita. Opções: segundos e 24 h na hora, esconder a regressiva ao zerar. Mudanças feitas com o cronômetro no ar atualizam ao vivo, e as configurações ficam salvas.
 
 ## Versículos soltos com Ctrl+clique
 

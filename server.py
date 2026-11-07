@@ -42,7 +42,7 @@ import youtube as yt
 
 
 APP_NAME = "NexStage"
-APP_VERSION = "0.5.5"
+APP_VERSION = "0.6.0"
 APP_AUTHOR = "Natan Gabriel"
 APP_REPOSITORY = "https://github.com/Natan-Tec/NexStage"
 GITHUB_LATEST_RELEASE_API = (
@@ -168,6 +168,24 @@ DEFAULT_STYLES = {
     },
 }
 
+DEFAULT_STYLES["timer"] = {
+    "label": block_style(size=26, weight=700, color="#66b7ff", x=50, y=16, width=82),
+    "time": block_style(size=130, weight=300, color="#ffffff", x=50, y=36, width=88, letter_spacing=2),
+    "countdown": block_style(size=150, weight=300, color="#ff6b81", x=50, y=68, width=88, letter_spacing=2),
+}
+
+DEFAULT_TIMER = {
+    "mode": "endTime",      # endTime = termina num horário; duration = duração fixa a partir do "Ligar"
+    "endTime": "10:00",
+    "durationMin": 40,
+    "running": False,
+    "startedAt": 0,
+    "showSeconds": True,
+    "format24": True,
+    "hideAtZero": False,
+    "label": "",
+}
+
 DEFAULT_STATE: dict[str, Any] = {
     "revision": 1,
     "updatedAt": 0,
@@ -181,6 +199,7 @@ DEFAULT_STATE: dict[str, Any] = {
     "styles": DEFAULT_STYLES,
     "fonts": [],
     "youtube": {},
+    "timer": DEFAULT_TIMER,
     "clock": {
         "format24": True,
         "showSeconds": False,
@@ -197,6 +216,7 @@ DEFAULT_SETTINGS = {
     "theme": DEFAULT_THEME,
     "styles": DEFAULT_STYLES,
     "clock": DEFAULT_STATE["clock"],
+    "timer": DEFAULT_TIMER,
     "bible": {"showVersion": True, "referenceFormat": "full"},
     "fonts": {"autoImport": True, "prefix": "CMG"},
     "youtube": {"autoDownload": True, "defaultHeight": 720, "maxFps": 30, "volume": 0.8, "autoSwitchToFile": True},
@@ -1342,6 +1362,7 @@ class AppStore:
         self.state["theme"] = {**DEFAULT_THEME, **self.settings.get("theme", {})}
         self.state["styles"] = deep_merge(DEFAULT_STYLES, self.settings.get("styles", {}))
         self.state["clock"] = deep_merge(DEFAULT_STATE["clock"], self.settings.get("clock", {}))
+        self.state["timer"] = deep_merge(DEFAULT_TIMER, self.settings.get("timer", {}))
         self.state["fonts"] = list_fonts()
         self.state["background"] = self.settings.get("defaultBackground", "")
         self.state["overlay"] = self.settings.get("defaultOverlay", "")
@@ -1420,6 +1441,7 @@ class AppStore:
             safe["theme"] = {**DEFAULT_THEME, **safe.get("theme", {})}
             safe["styles"] = deep_merge(DEFAULT_STYLES, safe.get("styles", {}))
             safe["clock"] = deep_merge(DEFAULT_STATE["clock"], safe.get("clock", {}))
+            safe["timer"] = deep_merge(DEFAULT_TIMER, safe.get("timer", {}))
             safe["fonts"] = safe.get("fonts") or list_fonts()
             # Showing a slide or the clock dismisses the video; flags such as blackout do not.
             if self.player.state["item"] and safe.get("mode") != "youtube":
@@ -1676,6 +1698,7 @@ class AppStore:
             self.state["theme"] = deep_merge(DEFAULT_THEME, self.settings.get("theme", {}))
             self.state["styles"] = deep_merge(DEFAULT_STYLES, self.settings.get("styles", {}))
             self.state["clock"] = deep_merge(DEFAULT_STATE["clock"], self.settings.get("clock", {}))
+            self.state["timer"] = deep_merge(DEFAULT_TIMER, self.settings.get("timer", {}))
             self.state["background"] = self.settings.get("defaultBackground", "")
             self.state["overlay"] = self.settings.get("defaultOverlay", "")
             self.state["revision"] = int(self.state.get("revision", 0)) + 1

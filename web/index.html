@@ -12,6 +12,7 @@
     <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13M9 9l11-2M6 21c2.2 0 3-1.1 3-2.5S8.2 16 6 16s-3 1.1-3 2.5S3.8 21 6 21Zm11-2c2.2 0 3-1.1 3-2.5S19.2 14 17 14s-3 1.1-3 2.5 0.8 2.5 3 2.5Z"/></symbol>
     <symbol id="i-bible" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13Zm0 0A2.5 2.5 0 0 0 6.5 22H20v-5M12 6v7m-3.5-3.5h7"/></symbol>
     <symbol id="i-media" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m8 14 2.6-3 2.4 2 2.6-3L20 15M8 8h.01"/></symbol>
+    <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 1.5M9.5 3h5M12 3v3"/></symbol>
     <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
     <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
     <symbol id="i-display" viewBox="0 0 24 24"><rect x="2.5" y="3.5" width="19" height="14" rx="2"/><path d="M8 21h8m-4-3.5V21"/></symbol>
@@ -48,6 +49,7 @@
       <button class="rail-button" data-tab="media"><svg><use href="#i-media"/></svg><span>Mídia</span></button>
       <button class="rail-button" data-tab="youtube"><svg><use href="#i-play"/></svg><span>YouTube</span></button>
       <button class="rail-button" data-tab="clock"><svg><use href="#i-clock"/></svg><span>Relógio</span></button>
+      <button class="rail-button" data-tab="timer"><svg><use href="#i-timer"/></svg><span>Cronômetro</span></button>
       <span class="rail-spacer"></span>
       <button class="rail-button" data-tab="settings"><svg><use href="#i-settings"/></svg><span>Ajustes</span></button>
     </nav>
@@ -124,6 +126,26 @@
         </details>
       </section>
 
+      <section class="tab-panel" data-panel="timer">
+        <div class="panel-head"><div><span class="eyebrow">CULTO</span><h1>Cronômetro de culto</h1></div></div>
+        <div class="clock-card timer-card"><div id="timerNow">08:29:26</div><div id="timerLeft">00:00</div><span>hora atual e tempo restante</span></div>
+        <div class="timer-mode">
+          <label class="radio-row"><input type="radio" name="timerMode" id="timerModeEnd" value="endTime" checked><span>Hora de término</span><input type="time" id="timerEnd" value="10:00"></label>
+          <label class="radio-row"><input type="radio" name="timerMode" id="timerModeDuration" value="duration"><span>Duração (min)</span><input type="number" id="timerDuration" min="1" max="600" value="40"></label>
+        </div>
+        <div class="timer-run" id="timerRun" hidden>
+          <button class="button soft" id="timerStart" type="button"><svg><use href="#i-clock"/></svg> <span>Ligar contagem</span></button>
+          <button class="button ghost" id="timerReset" type="button">Reiniciar</button>
+        </div>
+        <label class="field"><span>Texto auxiliar</span><input id="timerLabel" placeholder="Culto termina em"></label>
+        <label class="check-row"><input type="checkbox" id="timerSeconds" checked><span>Mostrar segundos na hora</span></label>
+        <label class="check-row"><input type="checkbox" id="timer24" checked><span>Formato de 24 horas</span></label>
+        <label class="check-row"><input type="checkbox" id="timerHideZero"><span>Esconder a regressiva ao zerar</span></label>
+        <p class="yt-note">Hora, regressiva e texto auxiliar têm fonte, cor e tamanho próprios: use o menu da direita (ou o botão abaixo).</p>
+        <button class="button soft full edit-visual" id="editTimerVisual"><svg><use href="#i-edit"/></svg> Editar visual do cronômetro</button>
+        <button class="button primary full" id="presentTimer"><svg><use href="#i-timer"/></svg> Colocar cronômetro no ar</button>
+      </section>
+
       <section class="tab-panel" data-panel="clock">
         <div class="panel-heading"><div><span class="eyebrow">UTILITÁRIO</span><h1>Relógio</h1></div></div>
         <div class="clock-card"><div id="clockPreview">20:45</div><span id="clockDate">Sábado, 22 de agosto</span></div>
@@ -164,7 +186,7 @@
 
         <div class="settings-section-label">Sobre e atualizações</div>
         <div class="settings-card about-card">
-          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.5.5</span></b><small>por Natan Gabriel</small></div></div>
+          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.6.0</span></b><small>por Natan Gabriel</small></div></div>
           <dl class="about-details">
             <div><dt>Sistema</dt><dd id="aboutSystem">Carregando…</dd></div>
             <div><dt>Controlador</dt><dd><code id="aboutController">—</code></dd></div>

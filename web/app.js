@@ -40,6 +40,7 @@
     confirmDelete: $("#confirmDelete"), confirmClear: $("#confirmClear"), crossfadeMs: $("#crossfadeMs"), crossfadeOut: $("#crossfadeOut"), previewMode: $("#previewMode"),
     songShowLabels: $("#songShowLabels"), songShowCredits: $("#songShowCredits"), songCreditsFormat: $("#songCreditsFormat"),
     ytInput: $("#ytInput"), ytAdd: $("#ytAdd"), ytTools: $("#ytTools"), ytRemote: $("#ytRemote"), ytNowTitle: $("#ytNowTitle"), ytNowInfo: $("#ytNowInfo"), ytSeek: $("#ytSeek"), ytTime: $("#ytTime"), ytDur: $("#ytDur"), ytBack: $("#ytBack"), ytPlay: $("#ytPlay"), ytFwd: $("#ytFwd"), ytVolume: $("#ytVolume"), ytVolText: $("#ytVolText"), ytMute: $("#ytMute"), ytQuality: $("#ytQuality"), ytStop: $("#ytStop"), ytCount: $("#ytCount"), ytList: $("#ytList"), ytDefaultHeight: $("#ytDefaultHeight"), ytAutoDownload: $("#ytAutoDownload"), ytAutoSwitch: $("#ytAutoSwitch"), ytUpdateTools: $("#ytUpdateTools"),
+    timerNow: $("#timerNow"), timerLeft: $("#timerLeft"), timerModeEnd: $("#timerModeEnd"), timerModeDuration: $("#timerModeDuration"), timerEnd: $("#timerEnd"), timerDuration: $("#timerDuration"), timerRun: $("#timerRun"), timerStart: $("#timerStart"), timerReset: $("#timerReset"), timerLabel: $("#timerLabel"), timerSeconds: $("#timerSeconds"), timer24: $("#timer24"), timerHideZero: $("#timerHideZero"),
     fontCount: $("#fontCount"), fontAutoImport: $("#fontAutoImport"), fontSyncNow: $("#fontSyncNow"), fontSyncStatus: $("#fontSyncStatus"), slideDialog: $("#slideDialog"), slideDialogTitle: $("#slideDialogTitle"), slideLabel: $("#slideLabel"), slideText: $("#slideText"),
     songEditTitle: $("#songEditTitle"), songEditArtist: $("#songEditArtist"), songEditAlbum: $("#songEditAlbum"),
     aboutVersion: $("#aboutVersion"), aboutSystem: $("#aboutSystem"), aboutController: $("#aboutController"),
@@ -67,6 +68,11 @@
       ["bible.text", "Texto bíblico"],
       ["bible.reference", "Livro, capítulo e verso"],
       ["bible.version", "Versão da Bíblia"]
+    ],
+    timer: [
+      ["timer.time", "Hora"],
+      ["timer.countdown", "Tempo restante (regressiva)"],
+      ["timer.label", "Texto auxiliar"]
     ],
     clock: [
       ["clock.time", "Hora"],
@@ -184,8 +190,8 @@
     if (name === "youtube") ytStartPolling(); else ytStopPolling();
     $$(".rail-button").forEach(button => button.classList.toggle("active", button.dataset.tab === name));
     $$(".tab-panel").forEach(panel => panel.classList.toggle("active", panel.dataset.panel === name));
-    if (name === "clock") {
-      app.draftMode = "clock";
+    if (name === "clock" || name === "timer") {
+      app.draftMode = name;
       setMonitorView("draft");
       renderPreview();
     } else if (name === "songs") {
@@ -200,7 +206,7 @@
     } else if ((name === "songs" || name === "bible") && app.deck.length) {
       renderPreview();
     }
-    if (name === "songs" || name === "bible" || name === "clock") syncStyleEditor();
+    if (name === "songs" || name === "bible" || name === "clock" || name === "timer") syncStyleEditor();
   }
 
   function makeIcon(id) {
@@ -373,7 +379,7 @@
       slide.reference = credit;
     });
     renderSlides(); renderPreview(); saveSettings();
-    if (app.state.live && app.state.mode === "song" && app.draftMode !== "bible" && app.draftMode !== "clock") pushState(buildLyricsState(true));
+    if (app.state.live && app.state.mode === "song" && app.draftMode !== "bible" && app.draftMode !== "clock" && app.draftMode !== "timer") pushState(buildLyricsState(true));
   }
 
   function clockDraft() {
@@ -515,6 +521,7 @@
   function visualStyles(state) {
     const styles = state.styles || app.state?.styles || {};
     if (state.mode === "clock") return { label: styles.clock?.label || {}, text: styles.clock?.time || {}, reference: styles.clock?.date || {} };
+    if (state.mode === "timer") return { label: styles.timer?.label || {}, text: styles.timer?.time || {}, reference: styles.timer?.countdown || {} };
     if (state.mode === "bible") return { label: styles.bible?.version || {}, text: styles.bible?.text || {}, reference: styles.bible?.reference || {} };
     return { label: styles.song?.label || {}, text: styles.song?.text || {}, reference: styles.song?.reference || {} };
   }
@@ -556,7 +563,8 @@
   function renderVisual(target, state, placeholder, compact = false, black = false) {
     const content = state.mode === "youtube"
       ? { label: "YOUTUBE", text: state.youtube?.title || "Vídeo do YouTube", reference: "" }
-      : state.mode === "clock" ? formatClockContent(state.clock) : (state.slide || {});
+      : state.mode === "clock" ? formatClockContent(state.clock)
+      : state.mode === "timer" ? formatTimerContent(state.timer) : (state.slide || {});
     target.label.textContent = content.label || "";
     target.text.textContent = content.text || placeholder;
     target.reference.textContent = content.reference || "";
@@ -570,6 +578,9 @@
     if (app.draftMode === "clock") {
       return { ...app.state, live: false, black: false, mode: "clock", clock: clockDraft(), slide: { text: "", label: "", reference: "" } };
     }
+    if (app.draftMode === "timer") {
+      return { ...app.state, live: false, black: false, mode: "timer", timer: timerDraft(), slide: { text: "", label: "", reference: "" } };
+    }
     return {
       ...app.state, live: false, black: false,
       mode: app.draftMode === "bible" ? "bible" : "song",
@@ -578,12 +589,12 @@
   }
 
   function renderLyricsPreview() {
-    if (app.visualEditorMode === "clock") {
+    if (app.visualEditorMode === "clock" || app.visualEditorMode === "timer") {
       renderVisual({
         frame: refs.previewFrame, background: refs.previewBg, overlay: refs.previewOverlay,
         copy: refs.previewCopy, label: refs.previewLabel, text: refs.previewText,
         reference: refs.previewReference, videoHint: refs.videoHint
-      }, buildDraftPreviewState(), "Relógio");
+      }, buildDraftPreviewState(), app.visualEditorMode === "timer" ? "Cronômetro" : "Relógio");
       return;
     }
     const fallback = app.state?.mode !== "clock" ? app.state?.slide : null;
@@ -1163,7 +1174,7 @@
   }
 
   function styleMode() {
-    return app.draftMode === "bible" ? "bible" : app.draftMode === "clock" ? "clock" : "song";
+    return app.draftMode === "bible" ? "bible" : app.draftMode === "clock" ? "clock" : app.draftMode === "timer" ? "timer" : "song";
   }
 
   function styleAt(path = app.styleTarget) {
@@ -1178,7 +1189,7 @@
     const candidate = preferred || (String(app.styleTarget).startsWith(`${mode}.`) ? app.styleTarget : targets[0][0]);
     app.styleTarget = targets.some(([value]) => value === candidate) ? candidate : targets[0][0];
     refs.styleTarget.value = app.styleTarget;
-    refs.inspectorContext.textContent = mode === "bible" ? "Bíblia" : mode === "clock" ? "Relógio" : "Música";
+    refs.inspectorContext.textContent = mode === "bible" ? "Bíblia" : mode === "clock" ? "Relógio" : mode === "timer" ? "Cronômetro" : "Música";
     applyStyleControls();
   }
 
@@ -1258,6 +1269,7 @@
     const clock = app.settings.clock || {};
     refs.clock24.checked = clock.format24 !== false; refs.clockSeconds.checked = Boolean(clock.showSeconds);
     refs.clockShowDate.checked = clock.showDate !== false; refs.clockDateFormat.value = clock.dateFormat || "long"; refs.clockLabel.value = clock.label || "";
+    applyTimerControls(app.settings.timer || {});
     refs.fontAutoImport.checked = app.settings.fonts?.autoImport !== false;
     const youtube = app.settings.youtube || {};
     refs.ytDefaultHeight.value = String(youtube.defaultHeight || 720);
@@ -1307,7 +1319,7 @@
   function saveSettings() {
     clearTimeout(app.settingsTimer);
     app.settingsTimer = setTimeout(() => {
-      app.settings.theme = app.state.theme; app.settings.styles = app.state.styles; app.settings.clock = clockDraft();
+      app.settings.theme = app.state.theme; app.settings.styles = app.state.styles; app.settings.clock = clockDraft(); app.settings.timer = timerSettings();
       app.settings.bible = { ...(app.settings.bible || {}), showVersion: refs.bibleShowVersion.checked, referenceFormat: refs.bibleReferenceFormat.value };
       app.settings.defaultBackground = app.state.background; app.settings.defaultOverlay = app.state.overlay;
       api("/api/settings", { method: "POST", body: JSON.stringify(app.settings) }).catch(() => {});
@@ -1339,6 +1351,114 @@
     app.draftMode = "clock";
     app.monitorView = "output";
     pushState(buildClockState(true));
+  }
+
+  // ---- Cronômetro de culto ----
+  function timerSettings() {
+    return {
+      mode: refs.timerModeDuration.checked ? "duration" : "endTime",
+      endTime: refs.timerEnd.value || "10:00",
+      durationMin: Math.max(1, Math.min(600, Number(refs.timerDuration.value) || 40)),
+      showSeconds: refs.timerSeconds.checked, format24: refs.timer24.checked,
+      hideAtZero: refs.timerHideZero.checked, label: refs.timerLabel.value.trim()
+    };
+  }
+
+  function timerDraft() {
+    const run = app.timerRun || { running: false, startedAt: 0 };
+    return { ...timerSettings(), running: run.running, startedAt: run.startedAt };
+  }
+
+  function applyTimerControls(timer) {
+    refs.timerModeDuration.checked = timer.mode === "duration"; refs.timerModeEnd.checked = timer.mode !== "duration";
+    refs.timerEnd.value = timer.endTime || "10:00"; refs.timerDuration.value = String(timer.durationMin || 40);
+    refs.timerSeconds.checked = timer.showSeconds !== false; refs.timer24.checked = timer.format24 !== false;
+    refs.timerHideZero.checked = Boolean(timer.hideAtZero); refs.timerLabel.value = timer.label || "";
+    syncTimerMode();
+  }
+
+  function syncTimerMode() {
+    const duration = refs.timerModeDuration.checked;
+    refs.timerEnd.disabled = duration; refs.timerDuration.disabled = !duration;
+    refs.timerRun.hidden = !duration;
+    const running = Boolean(app.timerRun?.running);
+    refs.timerStart.querySelector("span").textContent = running ? "Contando…" : "Ligar contagem";
+    refs.timerStart.disabled = running;
+  }
+
+  function timerRemaining(timer, now = new Date()) {
+    if (timer.mode === "duration") {
+      const total = Math.max(1, Number(timer.durationMin) || 0) * 60;
+      if (!timer.running || !timer.startedAt) return total;
+      return Math.max(0, total - Math.floor((now.getTime() - Number(timer.startedAt)) / 1000));
+    }
+    const [hours, minutes] = String(timer.endTime || "00:00").split(":").map(Number);
+    const end = new Date(now);
+    end.setHours(hours || 0, minutes || 0, 0, 0);
+    if (end.getTime() - now.getTime() < -12 * 3600 * 1000) end.setDate(end.getDate() + 1);
+    return Math.max(0, Math.ceil((end.getTime() - now.getTime()) / 1000));
+  }
+
+  function formatRemaining(seconds) {
+    const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
+    const two = value => String(value).padStart(2, "0");
+    return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${two(m)}:${two(s)}`;
+  }
+
+  function formatTimerContent(timer = {}) {
+    const now = new Date();
+    const remaining = timerRemaining(timer, now);
+    return {
+      text: new Intl.DateTimeFormat("pt-BR", {
+        hour: "2-digit", minute: "2-digit", second: timer.showSeconds === false ? undefined : "2-digit", hour12: timer.format24 === false
+      }).format(now),
+      label: timer.label || "",
+      reference: remaining === 0 && timer.hideAtZero ? "" : formatRemaining(remaining)
+    };
+  }
+
+  function updateTimerPreview() {
+    const content = formatTimerContent(timerDraft());
+    refs.timerNow.textContent = content.text; refs.timerLeft.textContent = content.reference || "—";
+    const monitorState = app.state && (app.monitorView === "draft" ? buildDraftPreviewState() : app.state);
+    if (monitorState?.mode === "timer") renderMonitorPreview();
+  }
+
+  function buildTimerState(live = app.state.live) {
+    return {
+      ...app.state, live, black: false, mode: "timer", timer: timerDraft(), styles: app.state.styles, fonts: app.fonts,
+      slide: { text: "", label: "", reference: "" }, videoCrossfadeMs: app.settings.videoCrossfadeMs ?? 450
+    };
+  }
+
+  function presentTimer() {
+    app.draftMode = "timer"; app.monitorView = "output";
+    pushState(buildTimerState(true));
+  }
+
+  function timerChanged() {
+    app.draftMode = "timer";
+    syncTimerMode();
+    if (app.state.live && app.state.mode === "timer") {
+      app.state.timer = timerDraft(); app.monitorView = "output"; scheduleVisualPush();
+    } else app.monitorView = "draft";
+    updateTimerPreview(); renderPreview(); syncStyleEditor(); saveSettings();
+  }
+
+  function timerRunChange(running) {
+    app.timerRun = { running, startedAt: running ? Date.now() : 0 };
+    timerChanged();
+  }
+
+  function wireTimer() {
+    [refs.timerModeEnd, refs.timerModeDuration, refs.timerEnd, refs.timerDuration, refs.timerSeconds, refs.timer24, refs.timerHideZero]
+      .forEach(control => control.addEventListener("change", timerChanged));
+    refs.timerEnd.addEventListener("input", timerChanged); refs.timerDuration.addEventListener("input", timerChanged);
+    refs.timerLabel.addEventListener("input", timerChanged);
+    refs.timerStart.addEventListener("click", () => timerRunChange(true));
+    refs.timerReset.addEventListener("click", () => timerRunChange(false));
+    $("#presentTimer").addEventListener("click", presentTimer);
+    $("#editTimerVisual").addEventListener("click", () => focusVisualEditor("timer", "timer.time"));
   }
 
   function copyText(text, message) {
@@ -1716,7 +1836,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.5.5"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.6.0"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }
@@ -1857,6 +1977,7 @@
   function targetForPreviewKind(kind) {
     const mode = app.visualEditorMode || (app.draftMode === "bible" ? "bible" : "song");
     if (mode === "clock") return `clock.${kind === "text" ? "time" : kind === "reference" ? "date" : "label"}`;
+    if (mode === "timer") return `timer.${kind === "text" ? "time" : kind === "reference" ? "countdown" : "label"}`;
     if (mode === "bible") return `bible.${kind === "text" ? "text" : kind === "reference" ? "reference" : "version"}`;
     return `song.${kind}`;
   }
@@ -1961,12 +2082,13 @@
     $("#clearFrameCache").addEventListener("click", () => { app.videoFrameCache.clear(); refs.previewBg.dataset.source = ""; refs.stagePreviewBg.dataset.source = ""; renderPreview(); toast("Cache de frames limpo"); });
 
     $$("[data-monitor-view]").forEach(button => button.addEventListener("click", () => setMonitorView(button.dataset.monitorView)));
-    refs.goLive.addEventListener("click", () => { if (app.draftMode === "clock") presentClock(); else if (app.deck.length) { app.monitorView = "output"; pushState(buildLyricsState(true)); } else toast("Escolha o que apresentar", "Selecione um slide ou abra o relógio."); });
+    refs.goLive.addEventListener("click", () => { if (app.draftMode === "clock") presentClock(); else if (app.draftMode === "timer") presentTimer(); else if (app.deck.length) { app.monitorView = "output"; pushState(buildLyricsState(true)); } else toast("Escolha o que apresentar", "Selecione um slide ou abra o relógio."); });
     refs.blackout.addEventListener("click", () => { app.monitorView = "output"; pushState({ ...app.state, black: !app.state.black }); });
     $("#clearOutput").addEventListener("click", () => { if (app.settings.ui?.confirmClear && !confirm("Limpar a saída do telão?")) return; app.monitorView = "output"; pushState({ ...app.state, live: false, black: false }); });
     $("#previousSlide").addEventListener("click", () => stepSlide(-1));
     $("#nextSlide").addEventListener("click", () => stepSlide(1));
     $("#presentClock").addEventListener("click", presentClock);
+    wireTimer();
     [refs.clock24, refs.clockSeconds, refs.clockShowDate, refs.clockDateFormat].forEach(control => control.addEventListener("change", clockDraftChanged)); refs.clockLabel.addEventListener("input", clockDraftChanged);
 
     refs.slideDialog.querySelector(".slide-close").addEventListener("click", () => refs.slideDialog.close());
@@ -1982,7 +2104,7 @@
       }
       if (event.key === "ArrowRight") { event.preventDefault(); stepSlide(1); }
       if (event.key === "ArrowLeft") { event.preventDefault(); stepSlide(-1); }
-      if (event.key === "Enter") { event.preventDefault(); if (app.draftMode === "clock") presentClock(); else if (app.deck.length) { app.monitorView = "output"; pushState(buildLyricsState(true)); } }
+      if (event.key === "Enter") { event.preventDefault(); if (app.draftMode === "clock") presentClock(); else if (app.draftMode === "timer") presentTimer(); else if (app.deck.length) { app.monitorView = "output"; pushState(buildLyricsState(true)); } }
       if (event.key === "Escape") { app.monitorView = "output"; pushState({ ...app.state, live: false, black: false }); }
       if (event.key.toLowerCase() === "b") { app.monitorView = "output"; pushState({ ...app.state, black: !app.state.black }); }
     });
@@ -1995,7 +2117,8 @@
       Object.assign(app, { songs: data.songs, bibles: data.bibles, media: data.media, fonts: data.fonts || [], defaults: data.defaults || {}, settings: data.settings, state: data.state });
       app.state.theme = { ...data.settings.theme, ...data.state.theme };
       app.state.styles = app.state.styles || clone(data.settings.styles || data.defaults?.styles || {}); app.state.fonts = app.fonts;
-      app.draftMode = app.state.mode === "clock" ? "clock" : app.state.mode === "bible" ? "bible" : "song";
+      app.draftMode = app.state.mode === "clock" ? "clock" : app.state.mode === "timer" ? "timer" : app.state.mode === "bible" ? "bible" : "song";
+      app.timerRun = { running: Boolean(app.state.timer?.running), startedAt: Number(app.state.timer?.startedAt || 0) };
       app.monitorView = app.state.live || app.state.black ? "output" : "draft";
       applySettingsControls(); renderFontFaces(); populateFontOptions(); renderScreens();
       renderSongs(); renderBibles(); renderMedia(); renderSlides(); applyThemeControls(); renderPreview(); updateLiveUi(); updateClockPreview(); wireEvents();
@@ -2007,7 +2130,7 @@
       await loadAbout();
       if (app.appInfo?.updateSupported) setTimeout(() => checkForUpdates(true), 1800);
       if (/[?&]testar-atualizacao/.test(location.search)) setUpdateBadge(true, "teste"); // pré-visualiza o visual laranja
-      setInterval(updateClockPreview, 500);
+      setInterval(() => { updateClockPreview(); updateTimerPreview(); }, 500);
     } catch (error) {
       document.body.innerHTML = `<main style="font:16px system-ui;padding:40px;color:white"><h1>NexStage não iniciou</h1><p>${String(error.message).replace(/[<>]/g, "")}</p></main>`;
     }
