@@ -41,6 +41,7 @@
     songShowLabels: $("#songShowLabels"), songShowCredits: $("#songShowCredits"), songCreditsFormat: $("#songCreditsFormat"),
     ytInput: $("#ytInput"), ytAdd: $("#ytAdd"), ytTools: $("#ytTools"), ytRemote: $("#ytRemote"), ytNowTitle: $("#ytNowTitle"), ytNowInfo: $("#ytNowInfo"), ytSeek: $("#ytSeek"), ytTime: $("#ytTime"), ytDur: $("#ytDur"), ytBack: $("#ytBack"), ytPlay: $("#ytPlay"), ytFwd: $("#ytFwd"), ytVolume: $("#ytVolume"), ytVolText: $("#ytVolText"), ytMute: $("#ytMute"), ytQuality: $("#ytQuality"), ytStop: $("#ytStop"), ytCount: $("#ytCount"), ytList: $("#ytList"), ytDefaultHeight: $("#ytDefaultHeight"), ytAutoDownload: $("#ytAutoDownload"), ytAutoSwitch: $("#ytAutoSwitch"), ytUpdateTools: $("#ytUpdateTools"),
     timerNow: $("#timerNow"), timerLeft: $("#timerLeft"), timerModeEnd: $("#timerModeEnd"), timerModeDuration: $("#timerModeDuration"), timerEnd: $("#timerEnd"), timerDuration: $("#timerDuration"), timerRun: $("#timerRun"), timerStart: $("#timerStart"), timerReset: $("#timerReset"), timerLabel: $("#timerLabel"), timerSeconds: $("#timerSeconds"), timer24: $("#timer24"), timerHideZero: $("#timerHideZero"),
+    newSong: $("#newSong"), songLinesPerSlide: $("#songLinesPerSlide"), songResplit: $("#songResplit"), newSongDialog: $("#newSongDialog"), newSongClose: $("#newSongClose"), newSongTitle: $("#newSongTitle"), newSongArtist: $("#newSongArtist"), newSongLines: $("#newSongLines"), newSongText: $("#newSongText"), newSongSave: $("#newSongSave"), sectionJump: $("#sectionJump"),
     fontCount: $("#fontCount"), fontAutoImport: $("#fontAutoImport"), fontSyncNow: $("#fontSyncNow"), fontSyncStatus: $("#fontSyncStatus"), slideDialog: $("#slideDialog"), slideDialogTitle: $("#slideDialogTitle"), slideLabel: $("#slideLabel"), slideText: $("#slideText"),
     songEditTitle: $("#songEditTitle"), songEditArtist: $("#songEditArtist"), songEditAlbum: $("#songEditAlbum"),
     aboutVersion: $("#aboutVersion"), aboutSystem: $("#aboutSystem"), aboutController: $("#aboutController"),
@@ -217,9 +218,42 @@
     return svg;
   }
 
+  const searchCache = new WeakMap();
+  const foldText = text => String(text || "").toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  function songSearchIndex(song) {
+    let entry = searchCache.get(song);
+    if (!entry || entry.slides !== song.slides) {
+      entry = { slides: song.slides, head: foldText(`${song.title} ${song.artist || ""}`), lines: (song.slides || []).flatMap(slide => String(slide.text || "").split("\n")) };
+      entry.lyrics = entry.lines.map(foldText);
+      searchCache.set(song, entry);
+    }
+    return entry;
+  }
+
+  // Todas as palavras digitadas precisam aparecer no título, artista ou letra. Devolve a linha achada na letra.
+  function matchSong(song, words) {
+    if (!words.length) return { ok: true, line: "" };
+    const entry = songSearchIndex(song);
+    const all = `${entry.head} ${entry.lyrics.join(" ")}`;
+    if (!words.every(word => all.includes(word))) return { ok: false, line: "" };
+    if (words.every(word => entry.head.includes(word))) return { ok: true, line: "" };
+    const index = entry.lyrics.findIndex(line => words.some(word => line.includes(word)));
+    return { ok: true, line: index >= 0 ? entry.lines[index].trim() : "" };
+  }
+
+  async function toggleFavorite(song) {
+    try {
+      const updated = await api("/api/song/update", { method: "POST", body: JSON.stringify({ ...song, favorite: !song.favorite }) });
+      Object.assign(song, updated); renderSongs();
+    } catch (error) { toast("Não foi possível favoritar", error.message); }
+  }
+
   function renderSongs() {
-    const filter = refs.songFilter.value.trim().toLocaleLowerCase("pt-BR");
-    const songs = app.songs.filter(song => `${song.title} ${song.artist || ""}`.toLocaleLowerCase("pt-BR").includes(filter));
+    const words = foldText(refs.songFilter.value.trim()).split(/\s+/).filter(Boolean);
+    const found = new Map();
+    const songs = app.songs.filter(song => { const result = matchSong(song, words); found.set(song.id, result.line); return result.ok; })
+      .sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)));
     refs.songCount.textContent = app.songs.length;
     refs.songList.replaceChildren();
     if (!songs.length) {
@@ -237,6 +271,10 @@
       const title = document.createElement("b"); title.textContent = song.title;
       const detail = document.createElement("small"); detail.textContent = `${song.slides.length} slides • ${song.artist || song.source || "TXT"}`;
       meta.append(title, detail);
+      if (found.get(song.id)) { const hit = document.createElement("small"); hit.className = "song-hit"; hit.textContent = `“…${found.get(song.id).slice(0, 70)}…”`; meta.append(hit); }
+      const star = document.createElement("button"); star.className = `item-star${song.favorite ? " on" : ""}`; star.type = "button";
+      star.title = song.favorite ? "Tirar dos favoritos" : "Favoritar"; star.textContent = song.favorite ? "★" : "☆";
+      star.addEventListener("click", event => { event.stopPropagation(); toggleFavorite(song); });
       const remove = document.createElement("button"); remove.className = "item-delete"; remove.title = "Excluir"; remove.append(makeIcon("i-trash"));
       remove.addEventListener("click", async event => {
         event.stopPropagation();
@@ -248,7 +286,7 @@
           renderSongs(); toast("Música excluída");
         } catch (error) { toast("Não foi possível excluir", error.message); }
       });
-      item.append(icon, meta, remove);
+      item.append(icon, meta, star, remove);
       item.addEventListener("click", () => selectSong(song));
       refs.songList.append(item);
     });
@@ -281,7 +319,38 @@
     renderSlides(); renderPreview();
   }
 
+  // Atalhos de seção: um botão (e a tecla 1-9) por rótulo distinto (Verso 1, Refrão, Ponte…).
+  function songSections() {
+    if (!app.selectedSongId || app.draftMode === "bible") return [];
+    const names = [];
+    app.deck.forEach(slide => { const name = slide.sectionLabel || ""; if (name && !names.includes(name)) names.push(name); });
+    return names;
+  }
+
+  function jumpToSection(name) {
+    const starts = app.deck.map((slide, index) => ({ slide, index }))
+      .filter(({ slide, index }) => (slide.sectionLabel || "") === name && (index === 0 || (app.deck[index - 1].sectionLabel || "") !== name))
+      .map(({ index }) => index);
+    if (!starts.length) return;
+    const target = starts.find(index => index > app.currentIndex) ?? starts[0];
+    presentSlide(target, true);
+  }
+
+  function renderSectionJump() {
+    const names = songSections();
+    refs.sectionJump.hidden = names.length < 2;
+    refs.sectionJump.replaceChildren(...names.slice(0, 9).map((name, index) => {
+      const button = document.createElement("button"); button.type = "button"; button.className = "section-chip";
+      const key = document.createElement("kbd"); key.textContent = String(index + 1);
+      button.append(key, document.createTextNode(` ${name}`));
+      button.title = `Ir para ${name} (tecla ${index + 1}); repita para o próximo ${name}`;
+      button.addEventListener("click", () => jumpToSection(name));
+      return button;
+    }));
+  }
+
   function renderSlides() {
+    renderSectionJump();
     refs.slideCounter.textContent = `${app.deck.length} slide${app.deck.length === 1 ? "" : "s"}`;
     refs.slidesGrid.replaceChildren();
     if (!app.deck.length) {
@@ -1278,14 +1347,15 @@
     const bible = app.settings.bible || {};
     refs.bibleShowVersion.checked = bible.showVersion !== false; refs.bibleReferenceFormat.value = bible.referenceFormat || "full";
     const song = app.settings.song || {};
-    refs.songShowLabels.checked = song.showSectionLabels !== false; refs.songShowCredits.checked = Boolean(song.showCredits); refs.songCreditsFormat.value = song.creditsFormat || "artist";
+    refs.songShowLabels.checked = song.showSectionLabels !== false; refs.songShowCredits.checked = Boolean(song.showCredits); refs.songCreditsFormat.value = song.creditsFormat || "artist"; refs.songLinesPerSlide.value = String(song.linesPerSlide || 4); refs.newSongLines.value = String(song.linesPerSlide || 4);
     applyUiSettings();
   }
 
   function songSettingsChanged() {
     app.settings.song = {
       ...(app.settings.song || {}), showSectionLabels: refs.songShowLabels.checked,
-      showCredits: refs.songShowCredits.checked, creditsFormat: refs.songCreditsFormat.value
+      showCredits: refs.songShowCredits.checked, creditsFormat: refs.songCreditsFormat.value,
+      linesPerSlide: Math.max(1, Math.min(12, Number(refs.songLinesPerSlide.value) || 4))
     };
     refreshSongDeckOptions();
   }
@@ -1351,6 +1421,49 @@
     app.draftMode = "clock";
     app.monitorView = "output";
     pushState(buildClockState(true));
+  }
+
+  // ---- Nova música e reorganização ----
+  async function createSongFromDialog() {
+    const text = refs.newSongText.value.trim(); const title = refs.newSongTitle.value.trim();
+    if (!text) { toast("Cole a letra", "O campo da letra está vazio."); return; }
+    if (!title) { toast("Dê um título", "Escreva o nome da música."); return; }
+    refs.newSongSave.disabled = true;
+    try {
+      const song = await api("/api/song/import", { method: "POST", body: JSON.stringify({
+        filename: `${title}.txt`, title, artist: refs.newSongArtist.value.trim(), content: text, manual: true,
+        linesPerSlide: Math.max(1, Math.min(12, Number(refs.newSongLines.value) || 4))
+      }) });
+      app.songs.push(song); refs.newSongDialog.close();
+      refs.newSongTitle.value = ""; refs.newSongArtist.value = ""; refs.newSongText.value = "";
+      switchTab("songs"); selectSong(song); toast("Música criada", song.title);
+    } catch (error) { toast("Não foi possível salvar", error.message); }
+    finally { refs.newSongSave.disabled = false; }
+  }
+
+  // Só divide (nunca junta): slides com mais linhas que o limite viram vários slides do mesmo rótulo.
+  async function resplitCurrentSong() {
+    const song = app.songs.find(item => item.id === app.selectedSongId);
+    if (!song) { toast("Abra uma música primeiro"); return; }
+    const limit = Math.max(1, Math.min(12, Number(refs.songLinesPerSlide.value) || 4));
+    const slides = [];
+    app.deck.forEach(slide => {
+      const lines = String(slide.text || "").split("\n");
+      for (let index = 0; index < lines.length; index += limit) slides.push({ text: lines.slice(index, index + limit).join("\n"), label: slide.sectionLabel ?? slide.label ?? "" });
+    });
+    if (slides.length === app.deck.length) { toast("Nada a dividir", `Nenhum slide tem mais de ${limit} linhas.`); return; }
+    try {
+      const updated = await api("/api/song/update", { method: "POST", body: JSON.stringify({ ...song, slides }) });
+      Object.assign(song, updated); selectSong(song); toast("Slides reorganizados", `${slides.length} slides`);
+    } catch (error) { toast("Não foi possível reorganizar", error.message); }
+  }
+
+  function wireSongs() {
+    refs.newSong.addEventListener("click", () => { refs.newSongLines.value = String(app.settings.song?.linesPerSlide || 4); refs.newSongDialog.showModal(); setTimeout(() => refs.newSongTitle.focus(), 50); });
+    refs.newSongClose.addEventListener("click", () => refs.newSongDialog.close());
+    refs.newSongSave.addEventListener("click", createSongFromDialog);
+    refs.songLinesPerSlide.addEventListener("change", songSettingsChanged);
+    refs.songResplit.addEventListener("click", resplitCurrentSong);
   }
 
   // ---- Cronômetro de culto ----
@@ -1836,7 +1949,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.6.0"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.7.0"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }
@@ -2018,7 +2131,7 @@
     refs.biblePrevChapter.addEventListener("click", () => stepBibleChapter(-1));
     refs.bibleNextChapter.addEventListener("click", () => stepBibleChapter(1));
     refs.bibleShowVersion.addEventListener("change", bibleSettingsChanged); refs.bibleReferenceFormat.addEventListener("change", bibleSettingsChanged);
-    refs.songShowLabels.addEventListener("change", songSettingsChanged); refs.songShowCredits.addEventListener("change", songSettingsChanged); refs.songCreditsFormat.addEventListener("change", songSettingsChanged);
+    wireSongs(); refs.songShowLabels.addEventListener("change", songSettingsChanged); refs.songShowCredits.addEventListener("change", songSettingsChanged); refs.songCreditsFormat.addEventListener("change", songSettingsChanged);
     $("#editBibleVisual").addEventListener("click", () => focusVisualEditor("bible", "bible.text"));
     $("#editClockVisual").addEventListener("click", () => focusVisualEditor("clock", "clock.time"));
 
@@ -2096,11 +2209,15 @@
     $("#duplicateSlide").addEventListener("click", duplicateEditingSlide); $("#deleteSlide").addEventListener("click", deleteEditingSlide);
 
     addEventListener("keydown", event => {
-      if (/INPUT|SELECT|TEXTAREA/.test(event.target.tagName) || refs.onlineDialog.open || refs.ljaDialog.open || refs.slideDialog.open) return;
+      if (/INPUT|SELECT|TEXTAREA/.test(event.target.tagName) || refs.onlineDialog.open || refs.ljaDialog.open || refs.slideDialog.open || refs.newSongDialog.open) return;
       if (ytActiveTab() && app.yt?.status?.item && ytHandleKey(event)) return;
       if (event.key === "/" && !event.ctrlKey && !event.altKey && !event.metaKey) { event.preventDefault(); switchTab("bible"); refs.bibleQuick.focus(); refs.bibleQuick.select(); return; }
       if ((event.key === "ArrowRight" || event.key === "ArrowLeft") && event.shiftKey && app.draftMode === "bible" && app.bibleChapter) {
         event.preventDefault(); stepBibleChapter(event.key === "ArrowRight" ? 1 : -1, { present: true }); return;
+      }
+      if (/^[1-9]$/.test(event.key) && !event.ctrlKey && !event.altKey && !event.metaKey && app.draftMode === "song") {
+        const name = songSections()[Number(event.key) - 1];
+        if (name) { event.preventDefault(); jumpToSection(name); return; }
       }
       if (event.key === "ArrowRight") { event.preventDefault(); stepSlide(1); }
       if (event.key === "ArrowLeft") { event.preventDefault(); stepSlide(-1); }

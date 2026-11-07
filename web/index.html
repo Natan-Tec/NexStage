@@ -56,11 +56,11 @@
 
     <aside class="source-panel">
       <section class="tab-panel active" data-panel="songs">
-        <div class="panel-heading"><div><span class="eyebrow">BIBLIOTECA</span><h1>Músicas</h1></div><button class="icon-button" id="importTxt" title="Importar TXT"><svg><use href="#i-upload"/></svg></button></div>
+        <div class="panel-heading"><div><span class="eyebrow">BIBLIOTECA</span><h1>Músicas</h1></div><span class="heading-actions"><button class="icon-button" id="newSong" title="Nova música (colar letra)"><svg><use href="#i-edit"/></svg></button><button class="icon-button" id="importTxt" title="Importar TXT"><svg><use href="#i-upload"/></svg></button></span></div>
         <div class="searchbox"><svg><use href="#i-search"/></svg><input id="songFilter" placeholder="Buscar música"></div>
         <button class="online-search" id="openOnline"><span class="pulse-dot"></span><span><b>Buscar letra online</b><small>LRCLIB • requer internet</small></span><svg><use href="#i-chevron"/></svg></button>
         <button class="online-search lja-search" id="openLouvorJA"><span class="source-badge">LJA</span><span><b>Importar do Louvor JA</b><small id="ljaQuickStatus">Verificando catálogo local…</small></span><svg><use href="#i-chevron"/></svg></button>
-        <details class="source-options"><summary>Opções das músicas</summary><label class="check-row"><input type="checkbox" id="songShowLabels" checked><span>Mostrar rótulos (Verso, Refrão…)</span></label><label class="check-row"><input type="checkbox" id="songShowCredits"><span>Mostrar créditos</span></label><label class="field"><span>Formato dos créditos</span><select id="songCreditsFormat"><option value="artist">Artista</option><option value="titleArtist">Título — Artista</option><option value="album">Álbum</option></select></label></details>
+        <details class="source-options"><summary>Opções das músicas</summary><label class="field"><span>Linhas por slide (ao importar ou colar)</span><input id="songLinesPerSlide" type="number" min="1" max="12" value="4"></label><button class="button ghost full" id="songResplit" type="button">Reorganizar a música aberta com esse número</button><label class="check-row"><input type="checkbox" id="songShowLabels" checked><span>Mostrar rótulos (Verso, Refrão…)</span></label><label class="check-row"><input type="checkbox" id="songShowCredits"><span>Mostrar créditos</span></label><label class="field"><span>Formato dos créditos</span><select id="songCreditsFormat"><option value="artist">Artista</option><option value="titleArtist">Título — Artista</option><option value="album">Álbum</option></select></label></details>
         <div class="section-label"><span>Minhas músicas</span><b id="songCount">0</b></div>
         <div class="library-list" id="songList"></div>
       </section>
@@ -186,7 +186,7 @@
 
         <div class="settings-section-label">Sobre e atualizações</div>
         <div class="settings-card about-card">
-          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.6.0</span></b><small>por Natan Gabriel</small></div></div>
+          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.7.0</span></b><small>por Natan Gabriel</small></div></div>
           <dl class="about-details">
             <div><dt>Sistema</dt><dd id="aboutSystem">Carregando…</dd></div>
             <div><dt>Controlador</dt><dd><code id="aboutController">—</code></dd></div>
@@ -239,7 +239,8 @@
       </div>
 
       <div class="slides-head"><div><span class="eyebrow">SLIDES</span><b id="slidesTitle">Nenhum item selecionado</b></div><span><i>Duplo clique para editar</i> · <b id="slideCounter">0 slides</b></span></div>
-      <div class="slides-grid" id="slidesGrid">
+      <div class="section-jump" id="sectionJump" hidden></div>
+          <div class="slides-grid" id="slidesGrid">
         <div class="empty-state"><svg><use href="#i-music"/></svg><b>Sua sequência aparecerá aqui</b><span>Importe um TXT ou selecione uma passagem bíblica.</span></div>
       </div>
 
@@ -297,6 +298,16 @@
       <p class="dialog-note" id="ljaDialogStatus">O banco será usado somente para leitura.</p>
       <div class="dialog-search"><input id="ljaQuery" placeholder="Digite o título ou álbum"><button class="button primary" type="button" id="searchLja"><svg><use href="#i-search"/></svg> Buscar</button></div>
       <div class="online-results" id="ljaResults"><div class="dialog-empty">Pesquise uma música do catálogo instalado.</div></div>
+    </form>
+  </dialog>
+
+  <dialog id="newSongDialog">
+    <form method="dialog" class="dialog-card slide-editor" onsubmit="return false">
+      <div class="dialog-head"><div><span class="eyebrow">BIBLIOTECA</span><h2>Nova música</h2></div><button class="dialog-close" id="newSongClose" type="button" aria-label="Fechar">×</button></div>
+      <div class="metadata-grid new-song-meta"><label class="field"><span>Título</span><input id="newSongTitle" placeholder="Nome da música"></label><label class="field"><span>Artista / grupo (opcional)</span><input id="newSongArtist"></label><label class="field"><span>Linhas por slide</span><input id="newSongLines" type="number" min="1" max="12" value="4"></label></div>
+      <label class="field"><span>Letra</span><textarea id="newSongText" rows="12" placeholder="[Verso 1]&#10;Primeira linha&#10;Segunda linha&#10;&#10;[Refrão]&#10;Linha do refrão&#10;..."></textarea></label>
+      <p class="yt-note">Separe as estrofes com uma linha em branco. Para dar nome, escreva uma linha só com [Verso 1], [Refrão], [Ponte]… Estrofes longas são divididas pelo número de linhas por slide.</p>
+      <div class="slide-editor-actions new-song-actions"><span></span><button class="button primary" id="newSongSave" type="button">Salvar e abrir</button></div>
     </form>
   </dialog>
 

@@ -137,6 +137,21 @@ class TimerTests(unittest.TestCase):
         self.assertIn("timer.countdown", (web / "app.js").read_text(encoding="utf-8"))
 
 
+class SongTests(unittest.TestCase):
+    def test_lines_per_slide(self):
+        import server
+        text = "[Verso]\nA\nB\nC\nD\nE"
+        self.assertEqual(len(server.parse_song_text("x.txt", text, "T", 2)["slides"]), 3)
+        self.assertEqual(len(server.parse_song_text("x.txt", text, "T")["slides"]), 2)
+        self.assertEqual(len(server.parse_song_text("x.txt", text, "T", 99)["slides"]), 1)
+
+    def test_song_ui_is_wired(self):
+        web = Path(__file__).resolve().parents[1] / "web"
+        html = (web / "index.html").read_text(encoding="utf-8")
+        for ident in ("newSong", "newSongDialog", "songLinesPerSlide", "sectionJump"):
+            self.assertIn(f'id="{ident}"', html)
+
+
 class UiContractTests(unittest.TestCase):
     def test_ctrl_click_verse_selection_is_wired(self):
         js = (Path(__file__).resolve().parents[1] / "web" / "app.js").read_text(encoding="utf-8")

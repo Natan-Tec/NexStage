@@ -42,7 +42,7 @@ import youtube as yt
 
 
 APP_NAME = "NexStage"
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.7.0"
 APP_AUTHOR = "Natan Gabriel"
 APP_REPOSITORY = "https://github.com/Natan-Tec/NexStage"
 GITHUB_LATEST_RELEASE_API = (
@@ -224,6 +224,7 @@ DEFAULT_SETTINGS = {
         "showSectionLabels": True,
         "showCredits": False,
         "creditsFormat": "artist",
+        "linesPerSlide": 4,
     },
     "ui": {
         "accentColor": "#1687ff",
@@ -510,7 +511,7 @@ def about_info(base_url: str) -> dict[str, Any]:
     }
 
 
-def parse_song_text(filename: str, content: str, title: str = "") -> dict[str, Any]:
+def parse_song_text(filename: str, content: str, title: str = "", lines_per_slide: int = 4) -> dict[str, Any]:
     """Parse common worship TXT conventions into compact slides."""
     content = clean_text(content)
     lines = content.split("\n") if content else []
@@ -557,10 +558,11 @@ def parse_song_text(filename: str, content: str, title: str = "") -> dict[str, A
     flush()
 
     slides: list[dict[str, str]] = []
+    per_slide = max(1, min(12, int(lines_per_slide or 4)))
     for label, section_lines in sections:
         # Keep slides readable even when a TXT file has no blank lines.
-        for index in range(0, len(section_lines), 4):
-            chunk = section_lines[index : index + 4]
+        for index in range(0, len(section_lines), per_slide):
+            chunk = section_lines[index : index + per_slide]
             slides.append({"label": label, "text": "\n".join(chunk)})
 
     if not slides and content:
@@ -1543,6 +1545,13 @@ class AppStore:
             atomic_write_json(LIBRARY_FILE, self.library)
             return song, False
 
+    def lines_per_slide(self, requested: Any = None) -> int:
+        try:
+            value = int(requested) if requested not in (None, "") else int(self.settings.get("song", {}).get("linesPerSlide", 4))
+        except (TypeError, ValueError):
+            value = 4
+        return max(1, min(12, value))
+
     def update_song(self, incoming: dict[str, Any]) -> dict[str, Any]:
         song_id = str(incoming.get("id", ""))
         if not song_id:
@@ -1568,6 +1577,7 @@ class AppStore:
             song["artist"] = clean_text(str(incoming.get("artist", song.get("artist", ""))))[:200]
             song["album"] = clean_text(str(incoming.get("album", song.get("album", ""))))[:200]
             song["slides"] = normalized_slides
+            song["favorite"] = bool(incoming.get("favorite", song.get("favorite", False)))
             song["updatedAt"] = int(time.time())
             atomic_write_json(LIBRARY_FILE, self.library)
             return song
@@ -1882,7 +1892,12 @@ class NexStageHandler(BaseHTTPRequestHandler):
                     str(payload.get("filename", "musica.txt")),
                     str(payload.get("content", "")),
                     str(payload.get("title", "")),
+                    STORE.lines_per_slide(payload.get("linesPerSlide")),
                 )
+                if payload.get("artist"):
+                    song["artist"] = clean_text(str(payload["artist"]))[:200]
+                if payload.get("manual"):
+                    song["source"] = "manual"
                 self.send_json(STORE.save_song(song), status=HTTPStatus.CREATED)
             elif path == "/api/lyrics/import":
                 lyrics = str(payload.get("lyrics", ""))
@@ -1890,6 +1905,7 @@ class NexStageHandler(BaseHTTPRequestHandler):
                     str(payload.get("filename", "letra-online.txt")),
                     lyrics,
                     str(payload.get("title", "")),
+                    STORE.lines_per_slide(payload.get("linesPerSlide")),
                 )
                 song["source"] = "LRCLIB"
                 song["artist"] = str(payload.get("artist", ""))

@@ -1,4 +1,12 @@
-# NexStage 0.6.0
+# NexStage 0.7.0
+
+## Melhorias nas letras
+
+- **Nova música:** botão (lápis) na aba Músicas para colar a letra, com título, artista e linhas por slide. Estrofes separadas por linha em branco; `[Refrão]`, `[Ponte]`… dão nome às seções.
+- **Busca por trecho da letra:** digite qualquer parte (sem se preocupar com acentos); a linha encontrada aparece sob o título.
+- **Favoritas:** estrela em cada música; as favoritas ficam no topo.
+- **Linhas por slide:** agora é configurável (antes fixo em 4) em Opções das músicas, e há um botão para reorganizar a música aberta (só divide, nunca junta).
+- **Atalhos de seção:** botões e teclas **1–9** para pular direto a Verso 1, Refrão, Ponte… Repetir a tecla do Refrão vai para o próximo Refrão da música.
 
 ## Cronômetro de culto (nova aba)
 
