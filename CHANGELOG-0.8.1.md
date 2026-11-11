@@ -1,4 +1,8 @@
-# NexStage 0.8.0
+# NexStage 0.8.1
+
+## Prévia dos fundos em vídeo
+
+Na aba **Fundos**, cada vídeo agora mostra um quadro dele (em vez de só o ícone de play), para reconhecer o fundo pela imagem. As miniaturas são geradas uma vez, guardadas e não pesam na reprodução.
 
 ## Vídeos do computador, em tela cheia e com áudio
 

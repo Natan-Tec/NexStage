@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -175,6 +176,20 @@ class SongTests(unittest.TestCase):
         html = (web / "index.html").read_text(encoding="utf-8")
         for ident in ("newSong", "newSongDialog", "songLinesPerSlide", "sectionJump"):
             self.assertIn(f'id="{ident}"', html)
+
+
+@unittest.skipUnless(FFMPEG, "precisa de ffmpeg")
+class MediaThumbTests(unittest.TestCase):
+    def test_video_background_gets_a_cached_still_frame(self):
+        import server
+        with tempfile.TemporaryDirectory() as tmp:
+            clip = Path(tmp) / "fundo.mp4"
+            subprocess.run([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=25:duration=0.4",
+                            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip)], check=True)
+            with unittest.mock.patch.object(server, "THUMB_DIR", Path(tmp) / "thumbs"):
+                first = server.media_thumbnail(clip)
+                self.assertTrue(first and first.suffix == ".jpg" and first.stat().st_size > 0)
+                self.assertEqual(server.media_thumbnail(clip), first)
 
 
 class UiContractTests(unittest.TestCase):

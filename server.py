@@ -42,7 +42,7 @@ import youtube as yt
 
 
 APP_NAME = "NexStage"
-APP_VERSION = "0.8.0"
+APP_VERSION = "0.8.1"
 APP_AUTHOR = "Natan Gabriel"
 APP_REPOSITORY = "https://github.com/Natan-Tec/NexStage"
 GITHUB_LATEST_RELEASE_API = (
@@ -293,6 +293,40 @@ def safe_name(filename: str, fallback: str = "arquivo") -> str:
     stem = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip(".-") or fallback
     suffix = re.sub(r"[^A-Za-z0-9.]", "", Path(name).suffix.lower())[:12]
     return f"{stem[:90]}{suffix}"
+
+
+THUMB_DIR = DATA_DIR / "thumbs"
+_thumb_lock = threading.Lock()
+
+
+def media_thumbnail(source: Path) -> Path | None:
+    """A still frame of a background video (cached on disk), so the Fundos tab shows pictures instead of icons."""
+    suffix = source.suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+        return source
+    ffmpeg = STORE.yt_tools.ffmpeg_path()
+    if not ffmpeg:
+        return None
+    stat = source.stat()
+    prefix = hashlib.sha1(source.name.encode()).hexdigest()[:16]
+    thumb = THUMB_DIR / f"{prefix}-{stat.st_size}-{int(stat.st_mtime)}.jpg"
+    with _thumb_lock:
+        if thumb.is_file():
+            return thumb
+        THUMB_DIR.mkdir(parents=True, exist_ok=True)
+        for old in THUMB_DIR.glob(f"{prefix}-*.jpg"):
+            old.unlink(missing_ok=True)  # an older version of the same file
+        temporary = thumb.with_suffix(".tmp.jpg")
+        for position in ("1", "0"):  # very short clips have no frame at 1 s
+            yt.run_capture([
+                ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-ss", position, "-i", str(source),
+                "-frames:v", "1", "-vf", "scale=480:-2", str(temporary),
+            ], 60)
+            if temporary.is_file() and temporary.stat().st_size > 0:
+                os.replace(temporary, thumb)
+                return thumb
+        temporary.unlink(missing_ok=True)
+    return None
 
 
 def unique_path(directory: Path, filename: str) -> Path:
@@ -1774,6 +1808,8 @@ class NexStageHandler(BaseHTTPRequestHandler):
             elif path == "/api/state":
                 revision = int(query.get("since", ["0"])[0])
                 self.send_json(STORE.wait_state(revision), cache=False)
+            elif path.startswith("/api/media-thumb/"):
+                self.serve_media_thumbnail(path[len("/api/media-thumb/") :])
             elif path == "/api/media":
                 self.send_json(list_media(), cache=False)
             elif path == "/api/fonts":
@@ -1974,6 +2010,8 @@ class NexStageHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Mídia não encontrada"}, status=HTTPStatus.NOT_FOUND)
                 return
             target.unlink()
+            for old in THUMB_DIR.glob(f"{hashlib.sha1(target.name.encode()).hexdigest()[:16]}-*.jpg"):
+                old.unlink(missing_ok=True)
             self.send_json({"ok": True})
             return
         self.send_error(HTTPStatus.NOT_FOUND)
@@ -2112,6 +2150,18 @@ class NexStageHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.FORBIDDEN)
             return
         self.serve_file(target, cache_seconds=31536000, allow_range=True)
+
+    def serve_media_thumbnail(self, encoded_name: str) -> None:
+        name = Path(urllib.parse.unquote(encoded_name)).name
+        source = (MEDIA_DIR / name).resolve()
+        if source.parent != MEDIA_DIR.resolve() or not source.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        thumb = media_thumbnail(source)
+        if not thumb:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self.serve_file(thumb, cache_seconds=3600)
 
     def serve_youtube_file(self, encoded_name: str) -> None:
         name = Path(urllib.parse.unquote(encoded_name)).name

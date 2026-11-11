@@ -452,6 +452,9 @@ body.update-ready .update-status[data-state="available"] { border-color: #ff8a1f
 .yt-local[hidden], #ytYoutubeBox[hidden], #ytOptions[hidden] { display: none; }
 .yt-drop { min-height: 92px; padding: 10px; text-align: center; }
 
+.media-card .play-badge { position: absolute; inset: 6px 6px auto auto; width: 22px; height: 22px; padding: 0; display: grid; place-items: center; border-radius: 50%; background: #05090ecc; color: #8cc8ff; }
+.media-card .play-badge svg { width: 12px; height: 12px; }
+
 /* ==== tema laranja (atualização disponível) — gerado ==== */
 body.update-ready .button:hover { border-color:#66533a; }
 body.update-ready .button.primary { background:linear-gradient(180deg, #ff9127, #f38102); border-color:#ff9736; box-shadow:0 6px 18px #ff89052d; }
@@ -550,3 +553,4 @@ body.update-ready .section-chip { color:#dccebd; }
 body.update-ready .section-chip kbd { background:#3d2e1c; color:#f8c694; }
 body.update-ready .section-chip:hover { border-color:#70583b; color:#fffaf4; }
 body.update-ready .yt-source button.on { background:#523413; color:#ffe3c8; }
+body.update-ready .media-card .play-badge { color:#ffc794; }

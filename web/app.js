@@ -1113,7 +1113,12 @@
       if (media.type === "image") {
         const image = document.createElement("img"); image.src = media.url; image.alt = media.name; image.loading = "lazy"; card.append(image);
       } else {
-        const thumb = document.createElement("div"); thumb.className = "media-video-thumb"; thumb.append(makeIcon("i-play")); card.append(thumb);
+        const placeholder = () => { const thumb = document.createElement("div"); thumb.className = "media-video-thumb"; thumb.append(makeIcon("i-play")); return thumb; };
+        const image = document.createElement("img"); image.alt = media.name; image.loading = "lazy";
+        image.src = media.url.replace("/media/", "/api/media-thumb/");
+        image.addEventListener("error", () => { image.replaceWith(placeholder()); });
+        const badge = document.createElement("span"); badge.className = "play-badge"; badge.append(makeIcon("i-play"));
+        card.append(image, badge);
       }
       const label = document.createElement("span"); label.textContent = media.name; label.title = `${media.name} • ${formatBytes(media.size)}`; card.append(label);
       card.addEventListener("click", () => chooseMedia(media)); refs.mediaGrid.append(card);
@@ -2010,7 +2015,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.8.0"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.8.1"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }
