@@ -49,6 +49,7 @@
       <button class="rail-button" data-tab="media"><svg><use href="#i-media"/></svg><span>Fundos</span></button>
       <button class="rail-button" data-tab="youtube"><svg><use href="#i-play"/></svg><span>Vídeos</span></button>
       <button class="rail-button" data-tab="clock"><svg><use href="#i-clock"/></svg><span>Relógio</span></button>
+      <button class="rail-button" data-tab="auto"><svg><use href="#i-play"/></svg><span>Automações</span></button>
       <button class="rail-button" data-tab="timer"><svg><use href="#i-timer"/></svg><span>Cronômetro</span></button>
       <span class="rail-spacer"></span>
       <button class="rail-button" data-tab="settings"><svg><use href="#i-settings"/></svg><span>Ajustes</span></button>
@@ -96,6 +97,15 @@
         <div class="upload-drop" id="mediaDrop"><svg><use href="#i-upload"/></svg><b>Solte vídeos ou imagens</b><small>MP4 H.264 recomendado</small><div class="upload-progress"><i id="uploadBar"></i></div></div>
         <div class="section-label"><span>Arquivos locais</span><b id="mediaCount">0</b></div>
         <div class="media-grid" id="mediaGrid"></div>
+      </section>
+
+      <section class="tab-panel" data-panel="auto">
+        <div class="panel-heading"><div><span class="eyebrow">QUANDO → SE → ENTÃO</span><h1>Automações</h1></div><button class="icon-button" id="autoNew" title="Nova automação"><svg><use href="#i-edit"/></svg></button></div>
+        <div class="auto-bar"><label class="auto-switch"><input type="checkbox" id="autoPaused"> <span>Pausar todas</span></label><button class="button ghost" id="autoStopAll">Parar execuções</button></div>
+        <div class="auto-note">As automações agendadas rodam enquanto o NexStage estiver aberto.</div>
+        <div class="auto-list" id="autoList"></div>
+        <div class="section-label"><span>Histórico</span></div>
+        <div class="auto-history" id="autoHistory"></div>
       </section>
 
       <section class="tab-panel" data-panel="youtube">
@@ -193,7 +203,7 @@
 
         <div class="settings-section-label">Sobre e atualizações</div>
         <div class="settings-card about-card">
-          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.8.1</span></b><small>por Natan Gabriel</small></div></div>
+          <div class="about-heading"><img src="/favicon.ico" alt=""><div><b>NexStage <span id="aboutVersion">0.9.0</span></b><small>por Natan Gabriel</small></div></div>
           <dl class="about-details">
             <div><dt>Sistema</dt><dd id="aboutSystem">Carregando…</dd></div>
             <div><dt>Controlador</dt><dd><code id="aboutController">—</code></dd></div>
@@ -289,6 +299,15 @@
   <input type="file" id="mediaInput" accept="video/mp4,video/webm,video/quicktime,image/png,image/jpeg,image/webp,image/gif" hidden multiple>
   <input type="file" id="fontInput" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" hidden>
   <input type="file" id="settingsInput" accept=".nxsconfig,.json,application/json" hidden>
+
+  <dialog id="autoDialog">
+    <form method="dialog" class="dialog-card auto-editor" id="autoForm" onsubmit="return false">
+      <div class="dialog-head"><div><span class="eyebrow">QUANDO → SE → ENTÃO</span><h2>Automação</h2></div><button class="dialog-close" type="button" id="autoClose" aria-label="Fechar">×</button></div>
+      <input id="autoName" class="auto-name" placeholder="Nome da automação" maxlength="80">
+      <div id="autoBlocks"></div>
+      <div class="dialog-actions"><button type="button" class="button ghost" id="autoCancel">Cancelar</button><button type="button" class="button primary" id="autoSave">Salvar</button></div>
+    </form>
+  </dialog>
 
   <dialog id="onlineDialog">
     <form method="dialog" class="dialog-card" onsubmit="return false">

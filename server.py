@@ -34,6 +34,7 @@ import webbrowser
 import xml.etree.ElementTree as ET
 from contextlib import closing
 from http import HTTPStatus
+import automation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -42,7 +43,7 @@ import youtube as yt
 
 
 APP_NAME = "NexStage"
-APP_VERSION = "0.8.1"
+APP_VERSION = "0.9.0"
 APP_AUTHOR = "Natan Gabriel"
 APP_REPOSITORY = "https://github.com/Natan-Tec/NexStage"
 GITHUB_LATEST_RELEASE_API = (
@@ -1775,6 +1776,31 @@ def list_media() -> list[dict[str, Any]]:
 STORE = AppStore()
 
 
+class AutomationHost:
+    """Ponte entre o motor de automações e o estado do NexStage."""
+
+    def state(self) -> dict[str, Any]:
+        with STORE.lock:
+            return json.loads(json.dumps(STORE.state))
+
+    def apply(self, changes: dict[str, Any]) -> None:
+        with STORE.lock:
+            current = json.loads(json.dumps(STORE.state))
+            current.update(json.loads(json.dumps(changes)))
+            STORE.update_state(current)
+
+    def media_url(self, name: str, kind: str = "") -> str:
+        target = MEDIA_DIR / Path(str(name)).name
+        if not name or not target.is_file():
+            raise automation.AutomationError(f"Arquivo não encontrado em Fundos: {name or '(nenhum escolhido)'}")
+        if kind == "image" and target.suffix.lower() not in automation.IMAGE_SUFFIXES:
+            raise automation.AutomationError("A logo precisa ser uma imagem.")
+        return "/media/" + urllib.parse.quote(target.name)
+
+
+AUTOMATIONS = automation.AutomationEngine(AutomationHost(), DATA_DIR / "automations.json")
+
+
 class NexStageHandler(BaseHTTPRequestHandler):
     server_version = f"{APP_NAME}/{APP_VERSION}"
     protocol_version = "HTTP/1.1"
@@ -1810,6 +1836,8 @@ class NexStageHandler(BaseHTTPRequestHandler):
                 self.send_json(STORE.wait_state(revision), cache=False)
             elif path.startswith("/api/media-thumb/"):
                 self.serve_media_thumbnail(path[len("/api/media-thumb/") :])
+            elif path == "/api/automations":
+                self.send_json({**AUTOMATIONS.snapshot(), "catalog": automation.catalog()}, cache=False)
             elif path == "/api/media":
                 self.send_json(list_media(), cache=False)
             elif path == "/api/fonts":
@@ -1899,6 +1927,24 @@ class NexStageHandler(BaseHTTPRequestHandler):
             payload = self.read_json_body()
             if path == "/api/state":
                 self.send_json(STORE.update_state(payload), cache=False)
+            elif path == "/api/automations/save":
+                try:
+                    self.send_json({"item": AUTOMATIONS.save_item(payload)}, cache=False)
+                except ValueError as exc:
+                    self.send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST, cache=False)
+            elif path == "/api/automations/delete":
+                self.send_json({"ok": AUTOMATIONS.delete(str(payload.get("id", "")))}, cache=False)
+            elif path == "/api/automations/run":
+                try:
+                    started = AUTOMATIONS.run_now(str(payload.get("id", "")))
+                    self.send_json({"started": started}, cache=False)
+                except KeyError:
+                    self.send_json({"error": "Automação não encontrada."}, status=HTTPStatus.NOT_FOUND, cache=False)
+            elif path == "/api/automations/pause":
+                AUTOMATIONS.set_paused(bool(payload.get("paused")))
+                self.send_json({"ok": True}, cache=False)
+            elif path == "/api/automations/stop":
+                self.send_json({"stopped": AUTOMATIONS.stop(str(payload.get("id", "")))}, cache=False)
             elif path == "/api/fonts/sync":
                 self.send_json(STORE.sync_fonts(), cache=False)
             elif path == "/api/youtube/add":
@@ -2344,6 +2390,7 @@ def main() -> None:
 
     if not args.no_browser:
         threading.Timer(0.55, lambda: webbrowser.open(url)).start()
+    AUTOMATIONS.start()
     try:
         server.serve_forever(poll_interval=0.25)
     except KeyboardInterrupt:

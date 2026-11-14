@@ -749,10 +749,12 @@
   async function pushState(next) {
     app.state = next;
     updateLiveUi(); renderPreview();
+    app.pushing++;
     try {
       app.state = await api("/api/state", { method: "POST", body: JSON.stringify(next) });
       updateLiveUi(); renderPreview();
     } catch (error) { toast("Saída desconectada", error.message); }
+    finally { app.pushing--; }
   }
 
   function presentSlide(index, forceLive) {
@@ -2015,7 +2017,7 @@
   async function exportSettingsFile() {
     try {
       const bundle = await api("/api/settings/export");
-      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.8.1"}.nxsconfig`, bundle);
+      downloadJson(`NexStage-configuracoes-${bundle.appVersion || "0.9.0"}.nxsconfig`, bundle);
       toast("Configurações exportadas", "O arquivo foi salvo na pasta de downloads.");
     } catch (error) { toast("Não foi possível exportar", error.message); }
   }
@@ -2314,10 +2316,190 @@
       if (app.appInfo?.updateSupported) setTimeout(() => checkForUpdates(true), 1800);
       if (/[?&]testar-atualizacao/.test(location.search)) setUpdateBadge(true, "teste"); // pré-visualiza o visual laranja
       setInterval(() => { updateClockPreview(); updateTimerPreview(); }, 500);
+      wireAutomations(); syncServerState();
     } catch (error) {
       document.body.innerHTML = `<main style="font:16px system-ui;padding:40px;color:white"><h1>NexStage não iniciou</h1><p>${String(error.message).replace(/[<>]/g, "")}</p></main>`;
     }
   }
+
+  // ---------------------------------------------------------------- Automações
+  const auto = { data: null, editing: null, timer: null };
+  const esc = text => String(text ?? "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  const catalogOf = (group, type) => auto.data?.catalog?.[group]?.find(entry => entry.type === type);
+
+  async function loadAutomations() {
+    try { auto.data = await api("/api/automations"); renderAutomations(); } catch (_) { /* servidor ocupado */ }
+  }
+
+  function describeBlock(group, block) {
+    const spec = catalogOf(group, block.type); if (!spec) return block.type;
+    const bits = spec.params.map(p => {
+      const v = block.params?.[p.key];
+      if (p.kind === "days") return v?.length ? v.map(d => auto.data.catalog.dayNames[d]).join(", ") : "";
+      if (p.kind === "select") return p.options.find(o => o[0] === v)?.[1] || "";
+      return v === "" || v === undefined || v === 0 && p.key !== "at" ? "" : String(v);
+    }).filter(Boolean);
+    return spec.label + (bits.length ? ": " + bits.join(" · ") : "");
+  }
+
+  function renderAutomations() {
+    const data = auto.data; if (!data) return;
+    $("#autoPaused").checked = Boolean(data.paused);
+    const list = $("#autoList");
+    if (!data.items.length) list.innerHTML = '<div class="auto-empty">Nenhuma automação ainda. Clique no lápis para criar a primeira.</div>';
+    else list.innerHTML = data.items.map(item => `
+      <article class="auto-card${item.enabled ? "" : " off"}${data.running.includes(item.id) ? " running" : ""}" data-id="${esc(item.id)}">
+        <header><b>${esc(item.name)}</b><label class="auto-switch"><input type="checkbox" data-act="toggle" ${item.enabled ? "checked" : ""}> <span>Ativa</span></label></header>
+        <div class="auto-line when">${esc(describeBlock("triggers", item.trigger))}</div>
+        ${item.conditions.map(c => `<div class="auto-line cond">${esc(describeBlock("conditions", c))}</div>`).join("")}
+        <div class="auto-line then">${item.steps.length} passo${item.steps.length === 1 ? "" : "s"}</div>
+        <footer><button class="button soft" data-act="run">${data.running.includes(item.id) ? "Parar" : "Rodar agora"}</button><button class="button ghost" data-act="edit">Editar</button><button class="button ghost" data-act="delete">Excluir</button></footer>
+      </article>`).join("");
+    const history = $("#autoHistory");
+    history.innerHTML = data.history.length ? data.history.map(h => `<div class="auto-hist ${h.ok ? "ok" : "bad"}"><time>${new Date(h.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time><b>${esc(h.name)}</b><span>${esc(h.message)}</span></div>`).join("") : '<div class="auto-empty">Nada executado ainda.</div>';
+  }
+
+  function paramInput(spec, value) {
+    const k = esc(spec.key);
+    if (spec.kind === "text") return `<input data-k="${k}" value="${esc(value)}">`;
+    if (spec.kind === "number") return `<input data-k="${k}" type="number" min="${spec.min ?? 0}" max="${spec.max ?? ""}" value="${esc(value)}">`;
+    if (spec.kind === "time") return `<input data-k="${k}" type="time" value="${esc(value)}">`;
+    if (spec.kind === "select") return `<select data-k="${k}">${spec.options.map(o => `<option value="${esc(o[0])}" ${o[0] === value ? "selected" : ""}>${esc(o[1])}</option>`).join("")}</select>`;
+    if (spec.kind === "days") return `<div class="auto-days" data-k="${k}">${auto.data.catalog.dayNames.map((n, i) => `<label><input type="checkbox" value="${i}" ${(value || []).includes(i) ? "checked" : ""}>${n}</label>`).join("")}</div>`;
+    if (spec.kind === "media") {
+      const files = app.media.filter(m => spec.media === "image" ? m.type === "image" : true);
+      return `<select data-k="${k}"><option value="">— escolher —</option>${files.map(m => `<option value="${esc(m.name)}" ${m.name === value ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select>`;
+    }
+    return "";
+  }
+
+  function blockHtml(group, role, block, index) {
+    const registry = auto.data.catalog[group];
+    const spec = catalogOf(group, block.type) || registry[0];
+    const options = group === "actions"
+      ? [...new Set(registry.map(r => r.group))].map(g => `<optgroup label="${esc(g)}">${registry.filter(r => r.group === g).map(r => `<option value="${esc(r.type)}" ${r.type === block.type ? "selected" : ""}>${esc(r.label)}</option>`).join("")}</optgroup>`).join("")
+      : registry.map(r => `<option value="${esc(r.type)}" ${r.type === block.type ? "selected" : ""}>${esc(r.label)}</option>`).join("");
+    const grp = group === "actions" ? " g-" + (spec.group || "").toLowerCase().normalize("NFD").replace(/[^a-z]/g, "") : "";
+    const tools = group === "triggers" ? "" : `<span class="auto-tools"><button type="button" data-mv="-1" title="Subir">↑</button><button type="button" data-mv="1" title="Descer">↓</button><button type="button" data-rm title="Remover">×</button></span>`;
+    return `<div class="auto-block ${role}${grp}" data-group="${group}" data-i="${index}"><div class="auto-block-head"><select data-type>${options}</select>${tools}</div><div class="auto-params">${spec.params.map(p => `<label><small>${esc(p.label)}</small>${paramInput(p, block.params?.[p.key] ?? p.default)}</label>`).join("")}</div></div>`;
+  }
+
+  function readBlock(el) {
+    const type = el.querySelector("[data-type]").value, params = {};
+    el.querySelectorAll(".auto-params [data-k]").forEach(input => {
+      params[input.dataset.k] = input.classList.contains("auto-days") ? [...input.querySelectorAll("input:checked")].map(c => Number(c.value)) : input.value;
+    });
+    return { type, params };
+  }
+
+  function collectEditor() {
+    const el = $("#autoBlocks");
+    return {
+      ...auto.editing, name: $("#autoName").value,
+      trigger: readBlock(el.querySelector('[data-group="triggers"]')),
+      conditions: [...el.querySelectorAll('[data-group="conditions"]')].map(readBlock),
+      steps: [...el.querySelectorAll('[data-group="actions"]')].map(readBlock),
+    };
+  }
+
+  function renderEditor() {
+    const item = auto.editing;
+    $("#autoName").value = item.name;
+    $("#autoBlocks").innerHTML =
+      `<div class="auto-title when">QUANDO</div>${blockHtml("triggers", "when", item.trigger, 0)}` +
+      `<div class="auto-title cond">SE <small>(todas precisam ser verdadeiras)</small></div>${item.conditions.map((c, i) => blockHtml("conditions", "cond", c, i)).join("")}<button type="button" class="button soft" data-add="conditions">+ Condição</button>` +
+      `<div class="auto-title then">ENTÃO</div>${item.steps.map((s, i) => blockHtml("actions", "then", s, i)).join("")}<button type="button" class="button soft" data-add="actions">+ Ação</button>`;
+  }
+
+  function defaultBlock(group) {
+    const first = auto.data.catalog[group][0];
+    return { type: first.type, params: Object.fromEntries(first.params.map(p => [p.key, p.default])) };
+  }
+
+  function openAutoEditor(item) {
+    auto.editing = item ? clone(item) : { name: "", enabled: true, trigger: { type: "time", params: { at: "08:55", days: [] } }, conditions: [], steps: [{ type: "message", params: { text: "Bem-vindos!", seconds: 0 } }] };
+    renderEditor(); $("#autoDialog").showModal();
+  }
+
+  function onEditorChange(event) {
+    if (!event.target.matches("[data-type]")) return;
+    const wrap = event.target.closest(".auto-block"), group = wrap.dataset.group;
+    const spec = catalogOf(group, event.target.value);
+    const draft = collectEditor(); // já contém o tipo novo; reinicia só os parâmetros desse bloco
+    const fresh = { type: spec.type, params: Object.fromEntries(spec.params.map(p => [p.key, p.default])) };
+    if (group === "triggers") draft.trigger = fresh; else draft[group === "actions" ? "steps" : "conditions"][Number(wrap.dataset.i)] = fresh;
+    auto.editing = draft; renderEditor();
+  }
+
+  function onEditorClick(event) {
+    const add = event.target.closest("[data-add]"), wrap = event.target.closest(".auto-block");
+    if (!add && !wrap) return;
+    const draft = collectEditor();
+    if (add) { draft[add.dataset.add === "actions" ? "steps" : "conditions"].push(defaultBlock(add.dataset.add)); }
+    else {
+      const list = draft[wrap.dataset.group === "actions" ? "steps" : "conditions"], i = Number(wrap.dataset.i);
+      if (event.target.matches("[data-rm]")) list.splice(i, 1);
+      else if (event.target.dataset.mv) { const j = i + Number(event.target.dataset.mv); if (j < 0 || j >= list.length) return; [list[i], list[j]] = [list[j], list[i]]; }
+      else return;
+    }
+    auto.editing = draft; renderEditor();
+  }
+
+  async function saveAutomation() {
+    try {
+      await api("/api/automations/save", { method: "POST", body: JSON.stringify(collectEditor()) });
+      $("#autoDialog").close(); toast("Automação salva"); await loadAutomations();
+    } catch (error) { toast("Não foi possível salvar", error.message); }
+  }
+
+  async function onAutoListClick(event) {
+    const button = event.target.closest("[data-act]"); if (!button) return;
+    const card = button.closest(".auto-card"), item = auto.data.items.find(entry => entry.id === card.dataset.id);
+    if (!item) return;
+    try {
+      if (button.dataset.act === "toggle") await api("/api/automations/save", { method: "POST", body: JSON.stringify({ ...item, enabled: button.checked }) });
+      else if (button.dataset.act === "edit") return openAutoEditor(item);
+      else if (button.dataset.act === "delete") { if (!confirm(`Excluir "${item.name}"?`)) return; await api("/api/automations/delete", { method: "POST", body: JSON.stringify({ id: item.id }) }); }
+      else if (button.dataset.act === "run") {
+        const running = auto.data.running.includes(item.id);
+        await api(running ? "/api/automations/stop" : "/api/automations/run", { method: "POST", body: JSON.stringify({ id: item.id }) });
+      }
+    } catch (error) { toast("Automação", error.message); }
+    loadAutomations();
+  }
+
+  function wireAutomations() {
+    $("#autoNew").addEventListener("click", () => openAutoEditor(null));
+    $("#autoCancel").addEventListener("click", () => $("#autoDialog").close());
+    $("#autoClose").addEventListener("click", () => $("#autoDialog").close());
+    $("#autoSave").addEventListener("click", saveAutomation);
+    $("#autoBlocks").addEventListener("change", onEditorChange);
+    $("#autoBlocks").addEventListener("click", onEditorClick);
+    $("#autoList").addEventListener("click", onAutoListClick);
+    $("#autoList").addEventListener("change", event => { if (event.target.dataset.act === "toggle") onAutoListClick(event); });
+    $("#autoPaused").addEventListener("change", async event => { await api("/api/automations/pause", { method: "POST", body: JSON.stringify({ paused: event.target.checked }) }); loadAutomations(); });
+    $("#autoStopAll").addEventListener("click", async () => { await api("/api/automations/stop", { method: "POST", body: "{}" }); toast("Execuções paradas"); loadAutomations(); });
+    loadAutomations();
+    setInterval(() => { if (document.querySelector('[data-panel="auto"].active') && !$("#autoDialog").open) loadAutomations(); }, 2000);
+  }
+
+  // Adota mudanças feitas no servidor (automações), senão o próximo envio do controlador as desfaria.
+  app.pushing = 0;
+  async function syncServerState() {
+    for (;;) {
+      try {
+        const since = Number(app.state?.revision || 0);
+        const response = await fetch(`/api/state?since=${since}`, { cache: "no-store" });
+        const next = await response.json();
+        if (app.pushing) { await new Promise(resolve => setTimeout(resolve, 250)); continue; }
+        if (Number(next.revision || 0) > Number(app.state?.revision || 0)) {
+          app.state = { ...next, fonts: app.state.fonts };
+          updateLiveUi(); renderPreview(); updateMediaLabels(); renderMedia();
+        }
+      } catch (_) { await new Promise(resolve => setTimeout(resolve, 3000)); }
+    }
+  }
+
 
   init();
 })();

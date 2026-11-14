@@ -13,7 +13,7 @@ para criar um bloco novo basta registrar no catálogo + escrever a função da a
 
 | Parte | Conteúdo | Estado |
 |---|---|---|
-| 1 | Motor, armazenamento, histórico, pausar tudo, executar agora. Gatilhos: horário, a cada N min, ao abrir o NexStage, manual. Condições: dia da semana, entre horários, está no ar. Ações: fundo, logo, relógio, cronômetro, mensagem, preto, limpar, esperar, parar. Aba **Automações** com editor em cartões. Controlador passa a acompanhar mudanças feitas pelo servidor. | em andamento (0.9.0) |
+| 1 | Motor, armazenamento, histórico, pausar tudo, executar agora. Gatilhos: horário, a cada N min, ao abrir o NexStage, manual. Condições: dia da semana, entre horários, está no ar. Ações: fundo, logo, relógio, cronômetro, mensagem, preto, limpar, esperar, parar. Aba **Automações** com editor em cartões. Controlador passa a acompanhar mudanças feitas pelo servidor. | pronta (0.9.0) |
 | 2 | Ações de conteúdo: exibir música/seção, passagem bíblica, próximo/anterior slide, fundo aleatório. | |
 | 3 | Vídeo: iniciar/pausar/parar vídeo (computador e YouTube); gatilhos "quando o vídeo terminar", "quando o cronômetro zerar / faltar X min". | |
 | 4 | Controle de fluxo: SENÃO, E/OU/NÃO, REPETIR. | |

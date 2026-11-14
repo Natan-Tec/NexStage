@@ -455,6 +455,47 @@ body.update-ready .update-status[data-state="available"] { border-color: #ff8a1f
 .media-card .play-badge { position: absolute; inset: 6px 6px auto auto; width: 22px; height: 22px; padding: 0; display: grid; place-items: center; border-radius: 50%; background: #05090ecc; color: #8cc8ff; }
 .media-card .play-badge svg { width: 12px; height: 12px; }
 
+/* ==== automações ==== */
+.auto-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:6px 0; }
+.auto-switch { display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:12px; cursor:pointer; }
+.auto-note { color:var(--muted); font-size:11.5px; margin:2px 0 10px; }
+.auto-list { display:grid; gap:10px; }
+.auto-empty { color:var(--muted); font-size:12.5px; padding:14px; border:1px dashed var(--line); border-radius:10px; text-align:center; }
+.auto-card { background:var(--panel-2); border:1px solid var(--line); border-radius:12px; padding:10px 12px; display:grid; gap:6px; }
+.auto-card.off { opacity:.55; }
+.auto-card.running { border-color:#2fd37a; box-shadow:0 0 0 1px #2fd37a55; }
+.auto-card header { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.auto-card footer { display:flex; gap:6px; flex-wrap:wrap; margin-top:2px; }
+.auto-line { font-size:12px; padding:5px 9px; border-radius:7px; border-left:4px solid; background:var(--panel-3); }
+.auto-line.when, .auto-block.when { border-color:#f2b01e; }
+.auto-line.cond, .auto-block.cond { border-color:#8b6cf0; }
+.auto-line.then, .auto-block.then { border-color:#3aa0ff; }
+.auto-block.then.g-aparencia { border-color:#b565e8; }
+.auto-block.then.g-conteudo { border-color:#3aa0ff; }
+.auto-block.then.g-sistema { border-color:#2fd37a; }
+.auto-block.then.g-controle { border-color:#ff9f43; }
+.auto-hist { display:grid; grid-template-columns:auto 1fr; gap:2px 8px; font-size:11.5px; padding:6px 8px; border-radius:7px; background:var(--panel-2); margin-bottom:4px; }
+.auto-hist.bad { border-left:3px solid var(--red); }
+.auto-hist.ok { border-left:3px solid #2fd37a; }
+.auto-hist span { grid-column:1 / -1; color:var(--muted); }
+.auto-hist time { color:var(--muted); }
+.auto-editor { width:min(640px, 94vw); max-height:88vh; overflow:auto; }
+.auto-name { width:100%; margin:8px 0 4px; }
+.auto-title { font-weight:800; font-size:11px; letter-spacing:.12em; margin:14px 0 6px; color:var(--muted); }
+.auto-title small { font-weight:500; letter-spacing:0; }
+.auto-block { background:var(--panel-2); border:1px solid var(--line); border-left:5px solid; border-radius:10px; padding:8px 10px; margin-bottom:7px; }
+.auto-block-head { display:flex; gap:8px; align-items:center; }
+.auto-block-head select { flex:1; }
+.auto-tools { display:inline-flex; gap:4px; }
+.auto-tools button { background:var(--panel-3); color:var(--text); border:1px solid var(--line); border-radius:6px; width:26px; height:26px; cursor:pointer; }
+.auto-params { display:grid; gap:6px; margin-top:6px; }
+.auto-params label { display:grid; gap:2px; }
+.auto-params small { color:var(--muted); font-size:11px; }
+.auto-days { display:flex; gap:6px; flex-wrap:wrap; }
+.auto-days label { display:inline-flex; align-items:center; gap:3px; font-size:12px; }
+
+.auto-editor .dialog-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; } .auto-editor input, .auto-editor select { background:var(--panel-3); color:var(--text); border:1px solid var(--line); border-radius:7px; padding:6px 8px; }
+
 /* ==== tema laranja (atualização disponível) — gerado ==== */
 body.update-ready .button:hover { border-color:#66533a; }
 body.update-ready .button.primary { background:linear-gradient(180deg, #ff9127, #f38102); border-color:#ff9736; box-shadow:0 6px 18px #ff89052d; }
@@ -554,3 +595,5 @@ body.update-ready .section-chip kbd { background:#3d2e1c; color:#f8c694; }
 body.update-ready .section-chip:hover { border-color:#70583b; color:#fffaf4; }
 body.update-ready .yt-source button.on { background:#523413; color:#ffe3c8; }
 body.update-ready .media-card .play-badge { color:#ffc794; }
+body.update-ready .auto-line.then, body.update-ready .auto-block.then { border-color:#ff9c40; }
+body.update-ready .auto-block.then.g-conteudo { border-color:#ff9c40; }
